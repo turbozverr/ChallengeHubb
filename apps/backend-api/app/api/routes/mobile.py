@@ -1,4 +1,7 @@
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -6,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_mobile_user
+from app.core.config import settings
 from app.infrastructure.db import (
     ChallengeParticipationORM,
     MobileTokenORM,
@@ -25,10 +29,14 @@ from app.infrastructure.db import (
 )
 from app.schemas.mobile import (
     BadgeResponse,
+    AssistantRequest,
+    AssistantResponse,
     ChallengeParticipationResponse,
     CommentResponse,
     CreateCommentRequest,
     CreateMobileChallengeRequest,
+    FcmTokenRequest,
+    GoogleLoginRequest,
     JoinChallengeRequest,
     LeaderboardEntryResponse,
     MobileChallengeResponse,
@@ -38,6 +46,8 @@ from app.schemas.mobile import (
     MobileUserResponse,
     MobileVideoResponse,
     NotificationResponse,
+    PinBadgesRequest,
+    PremiumCheckoutResponse,
     ReportVideoRequest,
     UpdateMobileProfileRequest,
 )
@@ -74,6 +84,15 @@ def _challenge_response(row: SponsoredChallengeORM | UserChallengeORM, challenge
     return MobileChallengeResponse(**data)
 
 
+def _issue_mobile_token(user: MobileUserORM, db: Session) -> MobileTokenResponse:
+    user.last_active_at = now_utc()
+    token = f"mobile_{uuid4().hex}"
+    db.add(MobileTokenORM(token=token, user_id=user.id))
+    db.commit()
+    db.refresh(user)
+    return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
+
+
 @router.post("/auth/register", response_model=MobileTokenResponse)
 def register_mobile_user(payload: MobileRegisterRequest, db: Session = Depends(get_db)) -> MobileTokenResponse:
     existing = db.execute(
@@ -105,12 +124,43 @@ def login_mobile_user(payload: MobileLoginRequest, db: Session = Depends(get_db)
     user = db.execute(select(MobileUserORM).where(MobileUserORM.email == payload.email)).scalar_one_or_none()
     if not user or user.password != payload.password:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    user.last_active_at = now_utc()
-    token = f"mobile_{uuid4().hex}"
-    db.add(MobileTokenORM(token=token, user_id=user.id))
-    db.commit()
-    db.refresh(user)
-    return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
+    return _issue_mobile_token(user, db)
+
+
+@router.post("/auth/google", response_model=MobileTokenResponse)
+def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)) -> MobileTokenResponse:
+    if not settings.google_client_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google OAuth is not configured")
+    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={payload.id_token}"
+    try:
+        with urlopen(url, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token") from exc
+    if data.get("aud") != settings.google_client_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google token audience mismatch")
+    email = data.get("email")
+    if not email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google account email is missing")
+    user = db.execute(select(MobileUserORM).where(MobileUserORM.email == email)).scalar_one_or_none()
+    if not user:
+        name = data.get("name") or email.split("@")[0]
+        username = f"g_{email.split('@')[0]}".replace(".", "_")[:64]
+        user = MobileUserORM(
+            id=f"mu_{uuid4().hex[:10]}",
+            username=username,
+            full_name=name,
+            email=email,
+            password="GOOGLE_OAUTH",
+            avatar_url=data.get("picture"),
+            xp=0,
+            is_premium=False,
+            status="ACTIVE",
+            last_active_at=now_utc(),
+        )
+        db.add(user)
+        db.flush()
+    return _issue_mobile_token(user, db)
 
 
 @router.get("/auth/me", response_model=MobileUserResponse)
@@ -341,6 +391,20 @@ def report_video(
     return {"ok": True}
 
 
+@router.post("/videos/{video_id}/share")
+def share_video(
+    video_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    video = db.get(ModerationVideoORM, video_id)
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    video.shares_count += 1
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/profile/me", response_model=MobileUserResponse)
 def get_profile(current_user: MobileUserResponse = Depends(get_current_mobile_user)) -> MobileUserResponse:
     return current_user
@@ -364,12 +428,48 @@ def update_profile(
     return _mobile_user_response(user)
 
 
+@router.post("/profile/me/avatar", response_model=MobileUserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> MobileUserResponse:
+    user = db.get(MobileUserORM, current_user.id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    uploads_dir = Path("uploads/avatars")
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file.filename or "avatar.jpg").suffix or ".jpg"
+    target = uploads_dir / f"avatar_{uuid4().hex}{suffix}"
+    target.write_bytes(await file.read())
+    user.avatar_url = str(target).replace("\\", "/")
+    db.commit()
+    db.refresh(user)
+    return _mobile_user_response(user)
+
+
 @router.get("/profile/me/badges", response_model=list[BadgeResponse])
 def get_my_badges(
     current_user: MobileUserResponse = Depends(get_current_mobile_user),
     db: Session = Depends(get_db),
 ) -> list[BadgeResponse]:
     rows = db.execute(select(UserBadgeORM).where(UserBadgeORM.user_id == current_user.id)).scalars().all()
+    return [BadgeResponse(**to_dict(row)) for row in rows]
+
+
+@router.post("/profile/me/pinned-badges", response_model=list[BadgeResponse])
+def pin_badges(
+    payload: PinBadgesRequest,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> list[BadgeResponse]:
+    if len(payload.badge_ids) > 3:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only 3 badges can be pinned")
+    rows = db.execute(select(UserBadgeORM).where(UserBadgeORM.user_id == current_user.id)).scalars().all()
+    selected = set(payload.badge_ids)
+    for row in rows:
+        row.is_pinned = row.id in selected
+    db.commit()
     return [BadgeResponse(**to_dict(row)) for row in rows]
 
 
@@ -389,3 +489,68 @@ def get_notifications(
 ) -> list[NotificationResponse]:
     rows = db.execute(select(NotificationORM).where(NotificationORM.user_id == current_user.id).order_by(NotificationORM.created_at.desc())).scalars().all()
     return [NotificationResponse(**to_dict(row)) for row in rows]
+
+
+@router.post("/notifications/fcm-token")
+def register_fcm_token(
+    payload: FcmTokenRequest,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    user = db.get(MobileUserORM, current_user.id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    user.fcm_token = payload.token
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/assistant", response_model=AssistantResponse)
+def assistant(
+    payload: AssistantRequest,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> AssistantResponse:
+    user = db.get(MobileUserORM, current_user.id)
+    challenge = db.execute(select(SponsoredChallengeORM).where(SponsoredChallengeORM.status == "PUBLISHED")).scalar_one_or_none()
+    xp = user.xp if user else 0
+    answer = (
+        f"Ти маєш {xp} XP. Спробуй короткий челендж сьогодні: запиши відео до 30 секунд, "
+        "додай опис і не забувай про стабільний темп. Якщо бракує ідей, обери челендж із найбільшою XP-нагородою."
+    )
+    if payload.message:
+        answer = f"Я почув запит: \"{payload.message}\". {answer}"
+    return AssistantResponse(answer=answer, suggested_challenge_id=challenge.id if challenge else None)
+
+
+@router.post("/premium/checkout", response_model=PremiumCheckoutResponse)
+def create_premium_checkout(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+) -> PremiumCheckoutResponse:
+    if not settings.stripe_secret_key or not settings.stripe_price_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe is not configured")
+    payload = urlencode(
+        {
+            "mode": "subscription",
+            "success_url": settings.stripe_success_url,
+            "cancel_url": settings.stripe_cancel_url,
+            "line_items[0][price]": settings.stripe_price_id,
+            "line_items[0][quantity]": "1",
+            "client_reference_id": current_user.id,
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.stripe.com/v1/checkout/sessions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.stripe_secret_key}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Stripe checkout failed") from exc
+    return PremiumCheckoutResponse(checkout_url=data["url"])

@@ -13,6 +13,10 @@ class MobileLoginRequest(BaseModel):
     password: str
 
 
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+
+
 class MobileUserResponse(BaseModel):
     id: str
     username: str
@@ -37,6 +41,10 @@ class UpdateMobileProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     bio: str | None = Field(default=None, max_length=500)
     avatar_url: str | None = None
+
+
+class PinBadgesRequest(BaseModel):
+    badge_ids: list[str] = Field(max_length=3)
 
 
 class MobileChallengeResponse(BaseModel):
@@ -134,3 +142,20 @@ class NotificationResponse(BaseModel):
     body: str
     is_read: bool
     created_at: str
+
+
+class AssistantRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class AssistantResponse(BaseModel):
+    answer: str
+    suggested_challenge_id: str | None = None
+
+
+class PremiumCheckoutResponse(BaseModel):
+    checkout_url: str
+
+
+class FcmTokenRequest(BaseModel):
+    token: str = Field(min_length=10)

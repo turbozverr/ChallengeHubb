@@ -48,6 +48,7 @@ class MobileUserORM(Base):
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -235,6 +236,7 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NULL, title VARCHAR(255) NOT NULL, video_url TEXT NULL, file_path TEXT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
             "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
+            "ALTER TABLE mobile_users ADD COLUMN fcm_token TEXT NULL",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS challenge_participations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, challenge_id VARCHAR(64) NOT NULL, challenge_type VARCHAR(32) NOT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', started_at DATETIME NULL, completed_at DATETIME NULL)",

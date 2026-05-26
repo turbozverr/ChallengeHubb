@@ -6,6 +6,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_version: str = "0.1.0"
     mysql_dsn: str = "mysql+pymysql://challengehub:challengehub@localhost:3306/challengehub"
+    google_client_id: str = "336495115484-s2r5lp1kqv7s4cupmkddi7a8nefgopnj.apps.googleusercontent.com"
+    stripe_publishable_key: str = "pk_test_51TbOgKGfPrFAXeac6INs4P6ST2wcg5ltrd9olyUe23VAFuWFd1BOyJ4K4lNDL08UDSIOZ2IujMSL2aDmKHfNbmUM00TJVLbz50"
+    stripe_secret_key: str = "sk_test_51TbOgKGfPrFAXeacBxQAYjYjtEdL982l1Ci8hkOOVIjfmOMdp22BpPTwrMwMtmXR11BwNyrRGhb93iGxMzY7v54Y00EHj2Kisg"
+    stripe_price_id: str = "price_1TbOm5GfPrFAXeacQGQ9OwFE"
+    stripe_success_url: str = "https://challengehub.local/premium/success"
+    stripe_cancel_url: str = "https://challengehub.local/premium/cancel"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CH_")
 
