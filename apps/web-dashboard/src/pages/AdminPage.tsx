@@ -2,6 +2,7 @@
 import { api } from "../api/client";
 import type {
   AdminDashboardAnalyticsResponse,
+  MobileUserResponse,
   ModerationVideoResponse,
   SponsoredChallengeResponse,
   SystemSettingsResponse,
@@ -9,11 +10,12 @@ import type {
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
-type AdminTab = "dashboard" | "web-users" | "challenges" | "ad-videos" | "videos" | "settings";
+type AdminTab = "dashboard" | "web-users" | "mobile-users" | "challenges" | "ad-videos" | "videos" | "settings";
 
 const tabLabels: Record<AdminTab, string> = {
   dashboard: "Дашборд",
   "web-users": "Веб-користувачі",
+  "mobile-users": "Мобільні користувачі",
   challenges: "Спонсорські челенджі",
   "ad-videos": "Рекламні відео",
   videos: "Відео",
@@ -101,6 +103,7 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>("dashboard");
   const [overview, setOverview] = useState<Record<string, number>>({});
   const [users, setUsers] = useState<WebUserResponse[]>([]);
+  const [mobileUsers, setMobileUsers] = useState<MobileUserResponse[]>([]);
   const [challenges, setChallenges] = useState<SponsoredChallengeResponse[]>([]);
   const [videos, setVideos] = useState<ModerationVideoResponse[]>([]);
   const [settings, setSettings] = useState<SystemSettingsResponse | null>(null);
@@ -109,6 +112,7 @@ export function AdminPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [userSearch, setUserSearch] = useState("");
+  const [mobileUserSearch, setMobileUserSearch] = useState("");
   const [userRoleFilter, setUserRoleFilter] = useState("ALL");
   const [challengeSearch, setChallengeSearch] = useState("");
   const [challengeDifficultyFilter, setChallengeDifficultyFilter] = useState("ALL");
@@ -152,6 +156,11 @@ export function AdminPage() {
     });
   }, [users, userSearch, userRoleFilter]);
 
+  const mobileUsersFiltered = useMemo(() => {
+    const q = mobileUserSearch.toLowerCase();
+    return mobileUsers.filter((u) => `${u.id} ${u.username} ${u.full_name} ${u.email}`.toLowerCase().includes(q));
+  }, [mobileUsers, mobileUserSearch]);
+
   const challengesFiltered = useMemo(() => {
     const q = challengeSearch.toLowerCase();
     return challenges.filter((c) => {
@@ -183,9 +192,10 @@ export function AdminPage() {
   const load = async () => {
     if (!token) return;
     try {
-      const [ov, wu, ch, vd, st, da] = await Promise.all([
+      const [ov, wu, mu, ch, vd, st, da] = await Promise.all([
         api.adminOverview(token),
         api.listWebUsers(token),
+        api.listMobileUsers(token),
         api.listSponsoredChallenges(token),
         api.adminVideos(token),
         api.getSettings(token),
@@ -193,6 +203,7 @@ export function AdminPage() {
       ]);
       setOverview(ov);
       setUsers(wu);
+      setMobileUsers(mu);
       setChallenges(ch);
       setVideos(vd);
       setSettings(st);
@@ -246,7 +257,7 @@ export function AdminPage() {
       {error ? <p className="error">{error}</p> : null}
 
       <div className="tabs">
-        {(["dashboard", "web-users", "challenges", "ad-videos", "videos", "settings"] as AdminTab[]).map((t) => (
+        {(["dashboard", "web-users", "mobile-users", "challenges", "ad-videos", "videos", "settings"] as AdminTab[]).map((t) => (
           <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
             {tabLabels[t]}
           </button>
@@ -394,6 +405,46 @@ export function AdminPage() {
             <button disabled={usersPage <= 1} onClick={() => setUsersPage((p) => p - 1)}>Попередня</button>
             <span>Сторінка {usersPage} з {usersTotalPages}</span>
             <button disabled={usersPage >= usersTotalPages} onClick={() => setUsersPage((p) => p + 1)}>Наступна</button>
+          </div>
+        </>
+      )}
+
+      {tab === "mobile-users" && (
+        <>
+          <div className="row">
+            <input
+              placeholder="Пошук за ID, @логіном, іменем або Email"
+              value={mobileUserSearch}
+              onChange={(e) => setMobileUserSearch(e.target.value)}
+            />
+          </div>
+          <div className="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>@логін</th>
+                  <th>Ім'я</th>
+                  <th>Email</th>
+                  <th>XP</th>
+                  <th>Premium</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mobileUsersFiltered.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.id}</td>
+                    <td>@{u.username}</td>
+                    <td>{u.full_name}</td>
+                    <td>{u.email}</td>
+                    <td>{u.xp}</td>
+                    <td>{u.is_premium ? "Так" : "Ні"}</td>
+                    <td>{u.status === "ACTIVE" ? "Активний" : u.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}

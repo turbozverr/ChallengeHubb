@@ -5,6 +5,7 @@ import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -91,6 +92,88 @@ def _issue_mobile_token(user: MobileUserORM, db: Session) -> MobileTokenResponse
     db.commit()
     db.refresh(user)
     return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
+
+
+def _fallback_assistant_answer(message: str, xp: int, challenge: SponsoredChallengeORM | None) -> str:
+    challenge_part = f" Рекомендую почати з челенджу \"{challenge.title}\"." if challenge else ""
+    return (
+        f"Ти маєш {xp} XP. Сформулюй коротку ціль на сьогодні, запиши відео до 30 секунд "
+        f"і додай зрозумілий опис.{challenge_part} "
+        f"За твоїм запитом \"{message}\" найкраща дія зараз: обрати один челендж, виконати його без відкладання "
+        "і не гнатися за ідеальним результатом."
+    )
+
+
+def _call_gemini_assistant(message: str, user: MobileUserORM, challenge: SponsoredChallengeORM | None) -> str:
+    if not settings.gemini_api_key:
+        return _fallback_assistant_answer(message, user.xp, challenge)
+
+    system_prompt = """
+Ти AI-помічник мобільного застосунку ChallengeHub.
+Відповідай українською мовою, коротко, конкретно і дружньо.
+Твоя задача: мотивувати користувача виконувати короткі відео-челенджі, радити безпечні ідеї,
+пояснювати як отримати XP/значки, нагадувати про ліміт активних челенджів і преміум-функції.
+Не вигадуй неіснуючі дані. Якщо бракує інформації, запропонуй практичний наступний крок.
+Не давай небезпечних, образливих, незаконних або медичних/фінансових інструкцій.
+Формат відповіді: 2-5 речень або короткий список до 4 пунктів.
+""".strip()
+    context = {
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "xp": user.xp,
+            "is_premium": user.is_premium,
+            "status": user.status,
+        },
+        "suggested_challenge": {
+            "id": challenge.id,
+            "title": challenge.title,
+            "difficulty": challenge.difficulty,
+            "duration_days": challenge.duration_days,
+            "xp_reward": challenge.xp_reward,
+        }
+        if challenge
+        else None,
+    }
+    body = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": (
+                            "Контекст ChallengeHub:\n"
+                            f"{json.dumps(context, ensure_ascii=False)}\n\n"
+                            f"Запит користувача: {message}"
+                        )
+                    }
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "topP": 0.9,
+            "maxOutputTokens": 420,
+        },
+    }
+    request = Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": settings.gemini_api_key,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        parts = payload["candidates"][0]["content"]["parts"]
+        text = "".join(part.get("text", "") for part in parts).strip()
+        return text or _fallback_assistant_answer(message, user.xp, challenge)
+    except Exception:
+        return _fallback_assistant_answer(message, user.xp, challenge)
 
 
 @router.post("/auth/register", response_model=MobileTokenResponse)
@@ -381,9 +464,10 @@ def report_video(
     video = db.get(ModerationVideoORM, video_id)
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    previous_reports = video.reports_count
     video.reports_count += 1
     settings = db.get(SystemSettingsORM, "settings_main")
-    if settings and video.reports_count >= settings.report_limit:
+    if settings and previous_reports < settings.report_limit <= video.reports_count:
         video.status = "PENDING_MANUAL"
     db.add(ReportTicketORM(id=f"rep_{uuid4().hex[:10]}", video_id=video_id, reason=payload.reason, status="OPEN"))
     db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=current_user.id, title="Скаргу прийнято", body="Модератори перевірять відео."))
@@ -527,14 +611,10 @@ def assistant(
     db: Session = Depends(get_db),
 ) -> AssistantResponse:
     user = db.get(MobileUserORM, current_user.id)
+    if not user or not user.is_premium:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AI assistant is available for Premium users only")
     challenge = db.execute(select(SponsoredChallengeORM).where(SponsoredChallengeORM.status == "PUBLISHED")).scalar_one_or_none()
-    xp = user.xp if user else 0
-    answer = (
-        f"Ти маєш {xp} XP. Спробуй короткий челендж сьогодні: запиши відео до 30 секунд, "
-        "додай опис і не забувай про стабільний темп. Якщо бракує ідей, обери челендж із найбільшою XP-нагородою."
-    )
-    if payload.message:
-        answer = f"Я почув запит: \"{payload.message}\". {answer}"
+    answer = _call_gemini_assistant(payload.message, user, challenge)
     return AssistantResponse(answer=answer, suggested_challenge_id=challenge.id if challenge else None)
 
 
@@ -544,10 +624,11 @@ def create_premium_checkout(
 ) -> PremiumCheckoutResponse:
     if not settings.stripe_secret_key or not settings.stripe_price_id:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe is not configured")
+    success_url = f"{settings.stripe_success_url}{'&' if '?' in settings.stripe_success_url else '?'}user_id={current_user.id}"
     payload = urlencode(
         {
             "mode": "subscription",
-            "success_url": settings.stripe_success_url,
+            "success_url": success_url,
             "cancel_url": settings.stripe_cancel_url,
             "line_items[0][price]": settings.stripe_price_id,
             "line_items[0][quantity]": "1",
@@ -569,3 +650,18 @@ def create_premium_checkout(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Stripe checkout failed") from exc
     return PremiumCheckoutResponse(checkout_url=data["url"])
+
+
+@router.get("/premium/success", response_class=HTMLResponse)
+def premium_success(user_id: str, db: Session = Depends(get_db)) -> str:
+    user = db.get(MobileUserORM, user_id)
+    if user:
+        user.is_premium = True
+        db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована."))
+        db.commit()
+    return """
+    <html><body style="background:#121212;color:white;font-family:sans-serif;text-align:center;padding:40px">
+    <h1>ChallengeHub Premium активовано</h1>
+    <p>Можна повернутися до застосунку.</p>
+    </body></html>
+    """

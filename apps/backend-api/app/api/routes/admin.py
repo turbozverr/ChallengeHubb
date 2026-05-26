@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import ModerationVideoORM, ReportTicketORM, SponsoredChallengeORM, WebUserORM, get_db
+from app.infrastructure.db import MobileUserORM, ModerationVideoORM, ReportTicketORM, SponsoredChallengeORM, WebUserORM, get_db, to_dict
 from app.schemas.auth import MeResponse
+from app.schemas.mobile import MobileUserResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -33,3 +34,12 @@ def admin_overview(
         )
         or 0,
     }
+
+
+@router.get("/mobile-users", response_model=list[MobileUserResponse])
+def list_mobile_users(
+    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
+) -> list[MobileUserResponse]:
+    require_roles({WebRole.ADMIN}, current_user)
+    users = db.execute(select(MobileUserORM)).scalars().all()
+    return [MobileUserResponse(**to_dict(user)) for user in users]

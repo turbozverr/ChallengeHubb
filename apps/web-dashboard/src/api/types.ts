@@ -23,6 +23,19 @@ export interface WebUserResponse {
   created_at: string;
 }
 
+export interface MobileUserResponse {
+  id: string;
+  username: string;
+  full_name: string;
+  email: string;
+  avatar_url: string | null;
+  bio: string | null;
+  xp: number;
+  is_premium: boolean;
+  status: string;
+  created_at: string;
+}
+
 export interface SponsoredChallengeResponse {
   id: string;
   title: string;
@@ -60,6 +73,7 @@ export interface ModerationVideoResponse {
 export interface ReportResponse {
   id: string;
   video_id: string;
+  video_url: string | null;
   reason: string;
   status: string;
   created_at: string;

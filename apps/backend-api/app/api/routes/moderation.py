@@ -32,6 +32,13 @@ def _video_response(video: ModerationVideoORM, likes_map: dict[str, int]) -> Mod
     return ModerationVideoResponse(**data)
 
 
+def _report_response(report: ReportTicketORM, db: Session) -> ReportResponse:
+    data = to_dict(report)
+    video = db.get(ModerationVideoORM, report.video_id)
+    data["video_url"] = video.url if video else None
+    return ReportResponse(**data)
+
+
 @router.get("/videos/queue", response_model=list[ModerationVideoResponse])
 def get_manual_moderation_queue(
     current_user: MeResponse = Depends(get_current_web_user),
@@ -39,7 +46,10 @@ def get_manual_moderation_queue(
 ) -> list[ModerationVideoResponse]:
     require_roles({WebRole.ADMIN, WebRole.MODERATOR}, current_user)
     items = db.execute(
-        select(ModerationVideoORM).where(ModerationVideoORM.status == "PENDING_MANUAL")
+        select(ModerationVideoORM).where(
+            ModerationVideoORM.status == "PENDING_MANUAL",
+            ModerationVideoORM.ai_status == "REJECTED",
+        )
     ).scalars().all()
     likes_map = _likes_count_map(db)
     return [_video_response(item, likes_map) for item in items]
@@ -73,7 +83,7 @@ def get_reports_queue(
 ) -> list[ReportResponse]:
     require_roles({WebRole.ADMIN, WebRole.MODERATOR}, current_user)
     items = db.execute(select(ReportTicketORM).where(ReportTicketORM.status == "OPEN")).scalars().all()
-    return [ReportResponse(**to_dict(item)) for item in items]
+    return [_report_response(item, db) for item in items]
 
 
 @router.post("/reports/{report_id}/decision", response_model=ReportResponse)
@@ -92,9 +102,14 @@ def decide_report(
     report.status = "CONFIRMED" if payload.decision == "CONFIRM" else "REJECTED"
     report.decided_by = current_user.id
     report.decided_at = datetime.now(timezone.utc)
+    video = db.get(ModerationVideoORM, report.video_id)
+    if video:
+        video.status = "PUBLISHED" if payload.decision == "REJECT" else "BLOCKED"
+        video.decided_by = current_user.id
+        video.decided_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(report)
-    return ReportResponse(**to_dict(report))
+    return _report_response(report, db)
 
 
 @router.get("/videos", response_model=list[ModerationVideoResponse])

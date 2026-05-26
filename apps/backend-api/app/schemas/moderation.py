@@ -23,6 +23,7 @@ class ModerationVideoResponse(BaseModel):
 class ReportResponse(BaseModel):
     id: str
     video_id: str
+    video_url: str | None = None
     reason: str
     status: str
     created_at: str

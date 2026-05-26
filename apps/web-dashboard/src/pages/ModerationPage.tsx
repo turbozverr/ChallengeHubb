@@ -10,6 +10,12 @@ export function ModerationPage() {
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  const aiLabels: Record<string, string> = {
+    REJECTED: "Відхилено AI",
+    APPROVED: "Схвалено AI",
+    PENDING: "Очікує AI"
+  };
+
   const load = async () => {
     if (!token) return;
     try {
@@ -30,14 +36,14 @@ export function ModerationPage() {
     <div className="card">
       <h1>Центр модерації</h1>
       {error ? <p className="error">{error}</p> : null}
-      <h2>Черга AI Rejected</h2>
+      <h2>Черга відео, відхилених AI</h2>
       <div className="tableWrap">
         <table>
           <thead>
             <tr>
               <th>ID</th>
               <th>Контент</th>
-              <th>AI</th>
+              <th>Рішення AI</th>
               <th>Скарги</th>
               <th>Рішення</th>
             </tr>
@@ -47,11 +53,11 @@ export function ModerationPage() {
               <tr key={video.id}>
                 <td>{video.id}</td>
                 <td><button onClick={() => setPreviewUrl(video.url)}>Переглянути</button></td>
-                <td>{video.ai_status}</td>
+                <td>{aiLabels[video.ai_status] ?? video.ai_status}</td>
                 <td>{video.reports_count}</td>
                 <td className="row">
-                  <button onClick={async () => { if (!token) return; await api.decideVideo(token, video.id, "APPROVE"); await load(); }}>Approve</button>
-                  <button onClick={async () => { if (!token) return; await api.decideVideo(token, video.id, "BLOCK"); await load(); }}>Block</button>
+                  <button onClick={async () => { if (!token) return; await api.decideVideo(token, video.id, "APPROVE"); await load(); }}>Схвалити</button>
+                  <button onClick={async () => { if (!token) return; await api.decideVideo(token, video.id, "BLOCK"); await load(); }}>Заблокувати</button>
                 </td>
               </tr>
             ))}
@@ -65,7 +71,7 @@ export function ModerationPage() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>Video</th>
+              <th>Відео</th>
               <th>Причина</th>
               <th>Рішення</th>
             </tr>
@@ -74,11 +80,11 @@ export function ModerationPage() {
             {reports.map((report) => (
               <tr key={report.id}>
                 <td>{report.id}</td>
-                <td>{report.video_id}</td>
+                <td><button disabled={!report.video_url} onClick={() => report.video_url && setPreviewUrl(report.video_url)}>Переглянути</button></td>
                 <td>{report.reason}</td>
                 <td className="row">
-                  <button onClick={async () => { if (!token) return; await api.decideReport(token, report.id, "CONFIRM"); await load(); }}>Confirm</button>
-                  <button onClick={async () => { if (!token) return; await api.decideReport(token, report.id, "REJECT"); await load(); }}>Reject</button>
+                  <button onClick={async () => { if (!token) return; await api.decideReport(token, report.id, "REJECT"); await load(); }}>Схвалити</button>
+                  <button onClick={async () => { if (!token) return; await api.decideReport(token, report.id, "CONFIRM"); await load(); }}>Заблокувати</button>
                 </td>
               </tr>
             ))}
