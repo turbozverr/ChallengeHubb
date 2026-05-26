@@ -23,3 +23,6 @@ apps/backend-api/dist/
 apps/backend-api/.env
 apps/backend-api/.env.*
 apps/mobile-android/
+tmp_docs_extract/
+tmp_docx_text/
+tmp_task3_docx/
