@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class ModerationVideoResponse(BaseModel):
     id: str
     challenge_id: str
+    challenge_type: str = "SPONSORED"
     author_user_id: str
     url: str
     description: str | None = None

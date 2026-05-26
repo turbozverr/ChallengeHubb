@@ -11,6 +11,7 @@ from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.challenges import router as challenges_router
 from app.api.routes.health import router as health_router
+from app.api.routes.mobile import router as mobile_router
 from app.api.routes.moderation import router as moderation_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.web_users import router as web_users_router
@@ -38,6 +39,7 @@ app.include_router(challenges_router, prefix="/api/v1")
 app.include_router(moderation_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
+app.include_router(mobile_router, prefix="/api/v1")
 
 
 @app.on_event("startup")

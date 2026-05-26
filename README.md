@@ -13,6 +13,7 @@ This repository contains the first implementation iteration of the ChallengeHub 
 ## Repository Structure
 - `apps/web-dashboard` - web frontend
 - `apps/backend-api` - backend API skeleton
+- `apps/mobile-android` - native Android mobile app scaffold
 - `packages/shared-contracts` - shared domain contracts
 
 ## Run (after installing dependencies)
@@ -50,10 +51,22 @@ uvicorn app.main:app --reload
 
 Backend starts on `http://localhost:8000` and frontend should run on `http://localhost:5173`.
 
+### Android
+Open `apps/mobile-android` in Android Studio.
+
+Default mobile API URL points to the Railway backend:
+`https://challengehubb-production.up.railway.app/api/v1/`
+
+For local backend on emulator, run Gradle with:
+```bash
+gradle assembleDebug -PCH_API_BASE_URL=http://10.0.2.2:8000/api/v1/
+```
+
 ## Demo Accounts
 - `admin@challengehub.local` / `admin123`
 - `moderator@challengehub.local` / `moderator123`
 - `business@challengehub.local` / `business123`
+- `user@challengehub.local` / `user123`
 
 ## Current Status
 Implemented:
@@ -72,6 +85,7 @@ Implemented:
 - FastAPI API with auth + role-protected modules
 - MySQL persistence via SQLAlchemy (tables auto-created on startup, demo seed inserted once)
 - Backend schema is shared-ready for mobile/web sync (single common MySQL source of truth)
+- Mobile Android scaffold with auth, feed, challenges, likes, and profile
 
 Next:
 - Replace in-memory storage with MySQL persistence layer

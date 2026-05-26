@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import ModerationVideoORM, SponsoredChallengeORM, get_db
+from app.infrastructure.db import MobileUserORM, ModerationVideoORM, SponsoredChallengeORM, UserChallengeORM, VideoCommentORM, get_db
 from app.schemas.analytics import (
     AdminDashboardAnalyticsResponse,
     BusinessDashboardAnalyticsResponse,
@@ -34,7 +34,10 @@ def get_campaign_stats(
     result: list[CampaignStatsResponse] = []
     for challenge in challenges:
         videos = db.execute(
-            select(ModerationVideoORM).where(ModerationVideoORM.challenge_id == challenge.id)
+            select(ModerationVideoORM).where(
+                ModerationVideoORM.challenge_id == challenge.id,
+                ModerationVideoORM.challenge_type == "SPONSORED",
+            )
         ).scalars().all()
         views = sum(v.views_count for v in videos)
         completed = len([v for v in videos if v.status == "PUBLISHED"])
@@ -64,6 +67,8 @@ def get_admin_dashboard_analytics(
 
     videos = db.execute(select(ModerationVideoORM)).scalars().all()
     challenges = db.execute(select(SponsoredChallengeORM)).scalars().all()
+    user_challenges = db.execute(select(UserChallengeORM)).scalars().all()
+    mobile_users = db.execute(select(MobileUserORM)).scalars().all()
 
     dau_wau_mau: list[DateValuePoint] = []
     for d in days:
@@ -79,14 +84,11 @@ def get_admin_dashboard_analytics(
             ]
         )
 
-    first_seen: dict[str, str] = {}
-    for v in sorted(videos, key=lambda x: x.created_at):
-        if v.author_user_id not in first_seen:
-            first_seen[v.author_user_id] = v.created_at.date().isoformat()
     mobile_reg_map = {key: 0 for key in day_keys}
-    for day in first_seen.values():
-        if day in mobile_reg_map:
-            mobile_reg_map[day] += 1
+    for user in mobile_users:
+        key = user.created_at.date().isoformat()
+        if key in mobile_reg_map:
+            mobile_reg_map[key] += 1
     mobile_registrations = [MobileRegistrationsPoint(date=key, users=mobile_reg_map[key]) for key in day_keys]
 
     decision_map: dict[str, list[float]] = {key: [] for key in day_keys}
@@ -105,12 +107,13 @@ def get_admin_dashboard_analytics(
     ]
 
     by_challenge: dict[str, TopChallengePoint] = {}
+    user_challenge_titles = {c.id: c.title for c in user_challenges}
     challenge_titles = {c.id: c.title for c in challenges}
     for v in videos:
         if v.challenge_id not in by_challenge:
             by_challenge[v.challenge_id] = TopChallengePoint(
                 challenge_id=v.challenge_id,
-                title=challenge_titles.get(v.challenge_id, v.challenge_id),
+                title=challenge_titles.get(v.challenge_id, user_challenge_titles.get(v.challenge_id, v.challenge_id)),
                 submissions=0,
                 views=0,
                 shares=0,
@@ -182,13 +185,16 @@ def get_business_dashboard_analytics(
     challenge_ids = {c.id for c in challenges}
 
     videos = db.execute(select(ModerationVideoORM)).scalars().all()
-    videos = [v for v in videos if v.challenge_id in challenge_ids]
+    videos = [v for v in videos if v.challenge_id in challenge_ids and v.challenge_type == "SPONSORED"]
+    video_ids = {v.id for v in videos}
+    comments = db.execute(select(VideoCommentORM)).scalars().all()
 
     views_map = {k: 0 for k in day_keys}
     submissions_map = {k: 0 for k in day_keys}
     completed_map = {k: 0 for k in day_keys}
     likes_map = {k: 0 for k in day_keys}
     shares_map = {k: 0 for k in day_keys}
+    comments_map = {k: 0 for k in day_keys}
 
     for v in videos:
         k = v.created_at.date().isoformat()
@@ -200,6 +206,12 @@ def get_business_dashboard_analytics(
         shares_map[k] += int(v.shares_count)
         if v.status == "PUBLISHED":
             completed_map[k] += 1
+    for comment in comments:
+        if comment.video_id not in video_ids:
+            continue
+        k = comment.created_at.date().isoformat()
+        if k in comments_map:
+            comments_map[k] += 1
 
     views_by_day = [DateValuePoint(date=k, value=float(views_map[k])) for k in day_keys]
     submissions_by_day = [DateValuePoint(date=k, value=float(submissions_map[k])) for k in day_keys]
@@ -209,7 +221,8 @@ def get_business_dashboard_analytics(
         for k in day_keys
     ]
     interactions_by_day = [
-        InteractionPoint(date=k, likes=likes_map[k], shares=shares_map[k], comments=0) for k in day_keys
+        InteractionPoint(date=k, likes=likes_map[k], shares=shares_map[k], comments=comments_map[k])
+        for k in day_keys
     ]
 
     return BusinessDashboardAnalyticsResponse(

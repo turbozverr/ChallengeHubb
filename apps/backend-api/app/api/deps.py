@@ -3,8 +3,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.domain.roles import WebRole
-from app.infrastructure.db import TokenORM, WebUserORM, get_db
+from app.infrastructure.db import MobileTokenORM, MobileUserORM, TokenORM, WebUserORM, get_db
 from app.schemas.auth import MeResponse
+from app.schemas.mobile import MobileUserResponse
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -31,3 +32,31 @@ def require_roles(allowed: set[WebRole], user: MeResponse) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
         )
+
+
+def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
+    return MobileUserResponse(
+        id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        email=user.email,
+        avatar_url=user.avatar_url,
+        bio=user.bio,
+        xp=user.xp,
+        is_premium=user.is_premium,
+        status=user.status,
+        created_at=user.created_at.isoformat(),
+    )
+
+
+def get_current_mobile_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> MobileUserResponse:
+    if not credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    token_row = db.get(MobileTokenORM, credentials.credentials)
+    user = db.get(MobileUserORM, token_row.user_id) if token_row else None
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    return _to_mobile_response(user)

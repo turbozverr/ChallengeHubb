@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, create_engine, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.core.config import settings
@@ -37,6 +37,83 @@ class TokenORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class MobileUserORM(Base):
+    __tablename__ = "mobile_users"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password: Mapped[str] = mapped_column(String(255), nullable=False)
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    xp: Mapped[int] = mapped_column(Integer, default=0)
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MobileTokenORM(Base):
+    __tablename__ = "mobile_auth_tokens"
+    token: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class UserChallengeORM(Base):
+    __tablename__ = "user_challenges"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    difficulty: Mapped[str] = mapped_column(String(16), default="normal")
+    duration_days: Mapped[int] = mapped_column(Integer, default=7)
+    xp_reward: Mapped[int] = mapped_column(Integer, default=100)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PUBLISHED")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ChallengeParticipationORM(Base):
+    __tablename__ = "challenge_participations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    challenge_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class VideoCommentORM(Base):
+    __tablename__ = "video_comments"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    video_id: Mapped[str] = mapped_column(ForeignKey("moderation_videos.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class UserBadgeORM(Base):
+    __tablename__ = "user_badges"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    badge_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class NotificationORM(Base):
+    __tablename__ = "notifications"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class SponsoredChallengeORM(Base):
     __tablename__ = "sponsored_challenges"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -67,7 +144,8 @@ class PromoCodeORM(Base):
 class ModerationVideoORM(Base):
     __tablename__ = "moderation_videos"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    challenge_id: Mapped[str] = mapped_column(ForeignKey("sponsored_challenges.id"), nullable=False)
+    challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    challenge_type: Mapped[str] = mapped_column(String(32), default="SPONSORED")
     author_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -96,6 +174,7 @@ class ReportTicketORM(Base):
 
 class VideoLikeORM(Base):
     __tablename__ = "video_likes"
+    __table_args__ = (UniqueConstraint("user_id", "video_id", name="ux_video_likes_user_video"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     video_id: Mapped[str] = mapped_column(ForeignKey("moderation_videos.id"), nullable=False)
@@ -142,6 +221,7 @@ def init_db() -> None:
             "ALTER TABLE sponsored_challenges ADD COLUMN promo_single_code VARCHAR(255) NULL",
             "ALTER TABLE moderation_videos ADD COLUMN is_ad BOOLEAN DEFAULT FALSE",
             "ALTER TABLE moderation_videos ADD COLUMN description TEXT NULL",
+            "ALTER TABLE moderation_videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
             "ALTER TABLE moderation_videos ADD COLUMN views_count INT DEFAULT 0",
             "ALTER TABLE moderation_videos ADD COLUMN likes_count INT DEFAULT 0",
             "ALTER TABLE moderation_videos ADD COLUMN shares_count INT DEFAULT 0",
@@ -150,9 +230,18 @@ def init_db() -> None:
             "ALTER TABLE video_likes DROP FOREIGN KEY video_likes_ibfk_1",
             "ALTER TABLE video_likes DROP FOREIGN KEY fk_video_likes_video",
             "ALTER TABLE video_likes ADD CONSTRAINT fk_video_likes_video FOREIGN KEY (video_id) REFERENCES moderation_videos(id) ON DELETE CASCADE",
+            "ALTER TABLE moderation_videos DROP FOREIGN KEY moderation_videos_ibfk_1",
             "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL, is_sent BOOLEAN DEFAULT FALSE)",
             "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NULL, title VARCHAR(255) NOT NULL, video_url TEXT NULL, file_path TEXT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
+            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS challenge_participations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, challenge_id VARCHAR(64) NOT NULL, challenge_type VARCHAR(32) NOT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', started_at DATETIME NULL, completed_at DATETIME NULL)",
+            "CREATE UNIQUE INDEX ux_participation_user_challenge ON challenge_participations (user_id, challenge_id, challenge_type)",
+            "CREATE TABLE IF NOT EXISTS video_comments (id VARCHAR(64) PRIMARY KEY, video_id VARCHAR(64) NOT NULL, user_id VARCHAR(64) NOT NULL, text TEXT NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS user_badges (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, badge_code VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, is_pinned BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS notifications (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, body TEXT NOT NULL, is_read BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
             "ALTER TABLE ad_videos ADD COLUMN file_path TEXT NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN challenge_id VARCHAR(64) NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN video_url TEXT NULL",
@@ -164,6 +253,23 @@ def init_db() -> None:
                 pass
     with SessionLocal() as db:
         if db.query(WebUserORM).count() > 0:
+            if db.query(MobileUserORM).count() == 0:
+                db.add(
+                    MobileUserORM(
+                        id="mobile_user_1",
+                        username="demo_user",
+                        full_name="Demo User",
+                        email="user@challengehub.local",
+                        password="user123",
+                        bio="Demo ChallengeHub participant",
+                        xp=420,
+                        is_premium=False,
+                        status="ACTIVE",
+                        last_active_at=now_utc(),
+                    )
+                )
+                db.add(UserBadgeORM(id="badge_1", user_id="mobile_user_1", badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
+                db.commit()
             return
         admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.local", role=WebRole.ADMIN.value, password="admin123")
         moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.local", role=WebRole.MODERATOR.value, password="moderator123")
@@ -198,6 +304,20 @@ def init_db() -> None:
         db.add(AdVideoORM(id="ad_1", challenge_id=None, title="EVA Promo Intro", video_url="https://cdn.challengehub.local/ad/1"))
         db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026", is_sent=False))
         db.add(SystemSettingsORM(id="settings_main", ai_confidence_threshold=0.85, report_limit=3))
+        mobile_user = MobileUserORM(
+            id="mobile_user_1",
+            username="demo_user",
+            full_name="Demo User",
+            email="user@challengehub.local",
+            password="user123",
+            bio="ÐŸÐµÑ€ÑˆÐ¸Ð¹ ÑƒÑ‡Ð°ÑÐ½Ð¸Ðº ChallengeHub",
+            xp=420,
+            is_premium=False,
+            status="ACTIVE",
+            last_active_at=now_utc(),
+        )
+        db.add(mobile_user)
+        db.add(UserBadgeORM(id="badge_1", user_id=mobile_user.id, badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
         db.commit()
 
 
