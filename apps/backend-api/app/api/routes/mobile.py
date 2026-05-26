@@ -624,7 +624,7 @@ def create_premium_checkout(
 ) -> PremiumCheckoutResponse:
     if not settings.stripe_secret_key or not settings.stripe_price_id:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe is not configured")
-    success_url = f"{settings.stripe_success_url}{'&' if '?' in settings.stripe_success_url else '?'}user_id={current_user.id}"
+    success_url = f"{settings.stripe_success_url}{'&' if '?' in settings.stripe_success_url else '?'}session_id={{CHECKOUT_SESSION_ID}}"
     payload = urlencode(
         {
             "mode": "subscription",
@@ -652,16 +652,75 @@ def create_premium_checkout(
     return PremiumCheckoutResponse(checkout_url=data["url"])
 
 
+def _premium_page(title: str, text: str, deep_link: str | None = None) -> str:
+    auto_redirect = f"""
+        <script>
+          setTimeout(function () {{ window.location.href = "{deep_link}"; }}, 900);
+        </script>
+    """ if deep_link else ""
+    action = f"""
+          <a href="{deep_link}" style="display:inline-block;margin-top:22px;padding:14px 18px;border-radius:16px;background:linear-gradient(135deg,#AD46FF,#F6339A);color:white;text-decoration:none;font-weight:700">Повернутися в застосунок</a>
+    """ if deep_link else ""
+    return f"""
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{title}</title>
+        {auto_redirect}
+      </head>
+      <body style="margin:0;background:#121212;color:white;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center">
+        <main style="width:min(440px,calc(100vw - 32px));background:#1a1a1a;border:1px solid rgba(255,255,255,.08);border-radius:28px;padding:32px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+          <div style="width:68px;height:68px;margin:0 auto 18px;border-radius:20px;background:linear-gradient(135deg,#AD46FF,#F6339A);display:grid;place-items:center;font-size:32px">★</div>
+          <h1 style="margin:0 0 12px;font-size:26px">{title}</h1>
+          <p style="margin:0;color:#bdbdbd;line-height:1.55">{text}</p>
+          {action}
+          <p style="margin:22px 0 0;color:#777;font-size:13px">Можна повернутися до застосунку ChallengeHub.</p>
+        </main>
+      </body>
+    </html>
+    """
+
+
 @router.get("/premium/success", response_class=HTMLResponse)
-def premium_success(user_id: str, db: Session = Depends(get_db)) -> str:
-    user = db.get(MobileUserORM, user_id)
-    if user:
+def premium_success(
+    session_id: str | None = None,
+    user_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> str:
+    resolved_user_id = user_id
+    if session_id:
+        request = Request(
+            f"https://api.stripe.com/v1/checkout/sessions/{session_id}",
+            headers={"Authorization": f"Bearer {settings.stripe_secret_key}"},
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=10) as response:
+                session = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            return _premium_page("Не вдалося перевірити оплату", "Stripe тимчасово не відповів. Спробуйте оновити сторінку або перевірити статус профілю пізніше.")
+        if session.get("payment_status") not in {"paid", "no_payment_required"} and session.get("status") != "complete":
+            return _premium_page("Оплата ще не завершена", "Premium буде активовано після успішного підтвердження платежу Stripe.")
+        resolved_user_id = session.get("client_reference_id") or resolved_user_id
+
+    if not resolved_user_id:
+        return _premium_page("Не вдалося активувати Premium", "У посиланні відсутній ідентифікатор Stripe-сесії або користувача.")
+
+    user = db.get(MobileUserORM, resolved_user_id)
+    if not user:
+        return _premium_page("Користувача не знайдено", "Оплата пройшла, але профіль ChallengeHub не знайдено. Зверніться до адміністратора.")
+
+    if not user.is_premium:
         user.is_premium = True
         db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована."))
         db.commit()
-    return """
-    <html><body style="background:#121212;color:white;font-family:sans-serif;text-align:center;padding:40px">
-    <h1>ChallengeHub Premium активовано</h1>
-    <p>Можна повернутися до застосунку.</p>
-    </body></html>
-    """
+    deep_link = "challengehub://premium/success"
+    if session_id:
+        deep_link = f"{deep_link}?session_id={session_id}"
+    return _premium_page("ChallengeHub Premium активовано", "Платіж підтверджено, Premium-функції вже доступні у вашому профілі.", deep_link)
+
+
+@router.get("/premium/cancel", response_class=HTMLResponse)
+def premium_cancel() -> str:
+    return _premium_page("Оплату скасовано", "Premium не активовано. Ви можете повернутися до застосунку і спробувати ще раз.")
