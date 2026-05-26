@@ -245,6 +245,7 @@ def init_db() -> None:
             "ALTER TABLE ad_videos ADD COLUMN file_path TEXT NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN challenge_id VARCHAR(64) NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN video_url TEXT NULL",
+            "UPDATE mobile_users SET email = 'user@challengehub.dev' WHERE email = 'user@challengehub.local'",
         ]
         for statement in migrations:
             try:
@@ -259,7 +260,7 @@ def init_db() -> None:
                         id="mobile_user_1",
                         username="demo_user",
                         full_name="Demo User",
-                        email="user@challengehub.local",
+                        email="user@challengehub.dev",
                         password="user123",
                         bio="Demo ChallengeHub participant",
                         xp=420,
@@ -308,7 +309,7 @@ def init_db() -> None:
             id="mobile_user_1",
             username="demo_user",
             full_name="Demo User",
-            email="user@challengehub.local",
+            email="user@challengehub.dev",
             password="user123",
             bio="ÐŸÐµÑ€ÑˆÐ¸Ð¹ ÑƒÑ‡Ð°ÑÐ½Ð¸Ðº ChallengeHub",
             xp=420,

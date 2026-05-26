@@ -66,7 +66,7 @@ gradle assembleDebug -PCH_API_BASE_URL=http://10.0.2.2:8000/api/v1/
 - `admin@challengehub.local` / `admin123`
 - `moderator@challengehub.local` / `moderator123`
 - `business@challengehub.local` / `business123`
-- `user@challengehub.local` / `user123`
+- `user@challengehub.dev` / `user123`
 
 ## Current Status
 Implemented:
