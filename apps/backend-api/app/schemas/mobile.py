@@ -116,7 +116,10 @@ class CommentResponse(BaseModel):
     user_id: str
     username: str
     display_name: str | None = None
+    avatar_url: str | None = None
     text: str
+    likes_count: int = 0
+    liked_by_me: bool = False
     created_at: str
 
 

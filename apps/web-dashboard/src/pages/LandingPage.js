@@ -1,0 +1,5 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Link } from "react-router-dom";
+export function LandingPage() {
+    return (_jsxs("div", { className: "landing hero", children: [_jsxs("div", { className: "brand", children: [_jsx("img", { src: "/logo-placeholder.svg", alt: "ChallengeHub logo", className: "logo" }), _jsx("h1", { children: "ChallengeHub" })] }), _jsx("p", { children: "\u041F\u0430\u043D\u0435\u043B\u044C \u043A\u0435\u0440\u0443\u0432\u0430\u043D\u043D\u044F \u0434\u043B\u044F \u0440\u043E\u043B\u0435\u0439 Admin, Moderator \u0442\u0430 BusinessClient." }), _jsxs("div", { className: "row", children: [_jsx("a", { className: "button", href: "/downloads/challengehub-mobile.vpk", download: true, children: "\u0417\u0430\u0432\u0430\u043D\u0442\u0430\u0436\u0438\u0442\u0438 \u043C\u043E\u0431\u0456\u043B\u044C\u043D\u0443 \u0432\u0435\u0440\u0441\u0456\u044E (.vpk)" }), _jsx(Link, { className: "button secondary", to: "/login", children: "\u0423\u0432\u0456\u0439\u0442\u0438 \u0443 \u0432\u0435\u0431-\u0441\u0438\u0441\u0442\u0435\u043C\u0443" })] })] }));
+}

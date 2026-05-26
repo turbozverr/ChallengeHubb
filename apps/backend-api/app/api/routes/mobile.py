@@ -23,6 +23,7 @@ from app.infrastructure.db import (
     UserBadgeORM,
     UserChallengeORM,
     VideoCommentORM,
+    VideoCommentLikeORM,
     VideoLikeORM,
     get_db,
     now_utc,
@@ -544,17 +545,26 @@ def unlike_video(
 
 
 @router.get("/videos/{video_id}/comments", response_model=list[CommentResponse])
-def list_comments(video_id: str, db: Session = Depends(get_db)) -> list[CommentResponse]:
+def list_comments(video_id: str, authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> list[CommentResponse]:
+    current_user_id = _mobile_user_id_from_header(authorization, db)
     comments = db.execute(select(VideoCommentORM).where(VideoCommentORM.video_id == video_id).order_by(VideoCommentORM.created_at.asc())).scalars().all()
     users = {u.id: u for u in db.execute(select(MobileUserORM)).scalars().all()}
-    return [
-        CommentResponse(
-            **to_dict(comment),
-            username=users[comment.user_id].username if comment.user_id in users else "unknown",
-            display_name=users[comment.user_id].full_name if comment.user_id in users else None,
+    result: list[CommentResponse] = []
+    for comment in comments:
+        user = users.get(comment.user_id)
+        liked_by_me = False
+        if current_user_id:
+            liked_by_me = db.query(VideoCommentLikeORM).filter(VideoCommentLikeORM.comment_id == comment.id, VideoCommentLikeORM.user_id == current_user_id).first() is not None
+        result.append(
+            CommentResponse(
+                **to_dict(comment),
+                username=user.username if user else "unknown",
+                display_name=user.full_name if user else None,
+                avatar_url=user.avatar_url if user else None,
+                liked_by_me=liked_by_me,
+            )
         )
-        for comment in comments
-    ]
+    return result
 
 
 @router.post("/videos/{video_id}/comments", response_model=CommentResponse)
@@ -570,7 +580,45 @@ def add_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
-    return CommentResponse(**to_dict(comment), username=current_user.username, display_name=current_user.full_name)
+    return CommentResponse(**to_dict(comment), username=current_user.username, display_name=current_user.full_name, avatar_url=current_user.avatar_url)
+
+
+@router.post("/comments/{comment_id}/like", response_model=CommentResponse)
+def like_comment(
+    comment_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> CommentResponse:
+    comment = db.get(VideoCommentORM, comment_id)
+    if not comment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    existing = db.query(VideoCommentLikeORM).filter(VideoCommentLikeORM.comment_id == comment_id, VideoCommentLikeORM.user_id == current_user.id).first()
+    if not existing:
+        db.add(VideoCommentLikeORM(id=f"vcl_{uuid4().hex[:10]}", comment_id=comment_id, user_id=current_user.id))
+        comment.likes_count += 1
+        db.commit()
+        db.refresh(comment)
+    author = db.get(MobileUserORM, comment.user_id)
+    return CommentResponse(**to_dict(comment), username=author.username if author else "unknown", display_name=author.full_name if author else None, avatar_url=author.avatar_url if author else None, liked_by_me=True)
+
+
+@router.delete("/comments/{comment_id}/like", response_model=CommentResponse)
+def unlike_comment(
+    comment_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> CommentResponse:
+    comment = db.get(VideoCommentORM, comment_id)
+    if not comment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    existing = db.query(VideoCommentLikeORM).filter(VideoCommentLikeORM.comment_id == comment_id, VideoCommentLikeORM.user_id == current_user.id).first()
+    if existing:
+        db.delete(existing)
+        comment.likes_count = max(0, comment.likes_count - 1)
+        db.commit()
+        db.refresh(comment)
+    author = db.get(MobileUserORM, comment.user_id)
+    return CommentResponse(**to_dict(comment), username=author.username if author else "unknown", display_name=author.full_name if author else None, avatar_url=author.avatar_url if author else None, liked_by_me=False)
 
 
 @router.post("/videos/{video_id}/report")

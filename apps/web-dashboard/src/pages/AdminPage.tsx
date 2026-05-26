@@ -1,5 +1,6 @@
 ﻿import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import { resolveMediaUrl } from "../api/media";
 import type {
   AdminDashboardAnalyticsResponse,
   MobileUserResponse,
@@ -546,7 +547,7 @@ export function AdminPage() {
                   <tr key={v.id}>
                     <td>{v.id}</td>
                     <td>{v.description ?? "-"}</td>
-                    <td><a href={v.url} target="_blank" rel="noreferrer">Відкрити</a></td>
+                    <td><a href={resolveMediaUrl(v.url)} target="_blank" rel="noreferrer">Відкрити</a></td>
                     <td>{statusLabels[v.status] ?? v.status}</td>
                     <td>{v.is_ad ? "Рекламне" : "Звичайне"}</td>
                     <td>{v.views_count}</td>
