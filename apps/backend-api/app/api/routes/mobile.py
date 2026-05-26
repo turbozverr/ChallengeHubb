@@ -4,7 +4,7 @@ from urllib.request import Request, urlopen
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -457,6 +457,19 @@ def get_my_badges(
     return [BadgeResponse(**to_dict(row)) for row in rows]
 
 
+@router.get("/profile/me/videos", response_model=list[MobileVideoResponse])
+def get_my_videos(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> list[MobileVideoResponse]:
+    rows = db.execute(
+        select(ModerationVideoORM)
+        .where(ModerationVideoORM.author_user_id == current_user.id)
+        .order_by(ModerationVideoORM.created_at.desc())
+    ).scalars().all()
+    return [_video_response(row, db, current_user.id) for row in rows]
+
+
 @router.post("/profile/me/pinned-badges", response_model=list[BadgeResponse])
 def pin_badges(
     payload: PinBadgesRequest,
@@ -474,7 +487,9 @@ def pin_badges(
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntryResponse])
-def get_leaderboard(db: Session = Depends(get_db)) -> list[LeaderboardEntryResponse]:
+def get_leaderboard(period: str = Query("weekly"), db: Session = Depends(get_db)) -> list[LeaderboardEntryResponse]:
+    if period not in {"weekly", "all_time"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported leaderboard period")
     users = db.execute(select(MobileUserORM).order_by(MobileUserORM.xp.desc()).limit(50)).scalars().all()
     return [
         LeaderboardEntryResponse(rank=index + 1, user_id=user.id, username=user.username, full_name=user.full_name, avatar_url=user.avatar_url, xp=user.xp)
