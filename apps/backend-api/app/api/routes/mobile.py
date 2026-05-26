@@ -4,7 +4,7 @@ from urllib.request import Request, urlopen
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -75,7 +75,24 @@ def _video_response(video: ModerationVideoORM, db: Session, current_user_id: str
     data["likes_count"] = int(likes_count)
     data["comments_count"] = int(comments_count)
     data["liked_by_me"] = liked_by_me
+    author = db.get(MobileUserORM, video.author_user_id)
+    if author:
+        data["author_display_name"] = author.full_name
+        data["author_username"] = author.username
+        data["author_avatar_url"] = author.avatar_url
+    challenge = db.get(SponsoredChallengeORM, video.challenge_id) if video.challenge_type == "SPONSORED" else db.get(UserChallengeORM, video.challenge_id)
+    if challenge:
+        data["challenge_title"] = challenge.title
+        data["challenge_xp_reward"] = challenge.xp_reward
     return MobileVideoResponse(**data)
+
+
+def _mobile_user_id_from_header(authorization: str | None, db: Session) -> str | None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1]
+    row = db.get(MobileTokenORM, token)
+    return row.user_id if row else None
 
 
 def _challenge_response(row: SponsoredChallengeORM | UserChallengeORM, challenge_type: str, creator_name: str | None = None) -> MobileChallengeResponse:
@@ -314,13 +331,14 @@ def mobile_me(current_user: MobileUserResponse = Depends(get_current_mobile_user
 
 
 @router.get("/feed", response_model=list[MobileVideoResponse])
-def get_feed(db: Session = Depends(get_db)) -> list[MobileVideoResponse]:
+def get_feed(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> list[MobileVideoResponse]:
+    current_user_id = _mobile_user_id_from_header(authorization, db)
     videos = (
         db.execute(select(ModerationVideoORM).where(ModerationVideoORM.status == "PUBLISHED").order_by(ModerationVideoORM.created_at.desc()))
         .scalars()
         .all()
     )
-    return [_video_response(video, db) for video in videos]
+    return [_video_response(video, db, current_user_id) for video in videos]
 
 
 @router.get("/challenges", response_model=list[MobileChallengeResponse])
@@ -528,8 +546,15 @@ def unlike_video(
 @router.get("/videos/{video_id}/comments", response_model=list[CommentResponse])
 def list_comments(video_id: str, db: Session = Depends(get_db)) -> list[CommentResponse]:
     comments = db.execute(select(VideoCommentORM).where(VideoCommentORM.video_id == video_id).order_by(VideoCommentORM.created_at.asc())).scalars().all()
-    users = {u.id: u.username for u in db.execute(select(MobileUserORM)).scalars().all()}
-    return [CommentResponse(**to_dict(comment), username=users.get(comment.user_id, "unknown")) for comment in comments]
+    users = {u.id: u for u in db.execute(select(MobileUserORM)).scalars().all()}
+    return [
+        CommentResponse(
+            **to_dict(comment),
+            username=users[comment.user_id].username if comment.user_id in users else "unknown",
+            display_name=users[comment.user_id].full_name if comment.user_id in users else None,
+        )
+        for comment in comments
+    ]
 
 
 @router.post("/videos/{video_id}/comments", response_model=CommentResponse)
@@ -545,7 +570,7 @@ def add_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
-    return CommentResponse(**to_dict(comment), username=current_user.username)
+    return CommentResponse(**to_dict(comment), username=current_user.username, display_name=current_user.full_name)
 
 
 @router.post("/videos/{video_id}/report")
@@ -579,6 +604,16 @@ def share_video(
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     video.shares_count += 1
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/videos/{video_id}/view")
+def view_video(video_id: str, db: Session = Depends(get_db)) -> dict[str, bool]:
+    video = db.get(ModerationVideoORM, video_id)
+    if not video or video.status != "PUBLISHED":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    video.views_count += 1
     db.commit()
     return {"ok": True}
 

@@ -99,6 +99,11 @@ class MobileVideoResponse(BaseModel):
     created_at: str
     liked_by_me: bool = False
     comments_count: int = 0
+    author_display_name: str | None = None
+    author_username: str | None = None
+    author_avatar_url: str | None = None
+    challenge_title: str | None = None
+    challenge_xp_reward: int | None = None
 
 
 class CreateCommentRequest(BaseModel):
@@ -110,6 +115,7 @@ class CommentResponse(BaseModel):
     video_id: str
     user_id: str
     username: str
+    display_name: str | None = None
     text: str
     created_at: str
 
