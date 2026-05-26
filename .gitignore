@@ -12,3 +12,14 @@ __pycache__/
 coverage/
 apps/backend-api/.venv/
 documentation/
+apps/backend-api/.pytest_cache/
+apps/backend-api/.mypy_cache/
+apps/backend-api/.ruff_cache/
+apps/backend-api/coverage/
+apps/backend-api/.idea/
+apps/backend-api/.vscode/
+apps/backend-api/node_modules/
+apps/backend-api/dist/
+apps/backend-api/.env
+apps/backend-api/.env.*
+apps/mobile-android/
