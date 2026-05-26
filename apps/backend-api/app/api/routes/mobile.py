@@ -85,6 +85,68 @@ def _challenge_response(row: SponsoredChallengeORM | UserChallengeORM, challenge
     return MobileChallengeResponse(**data)
 
 
+BADGE_CATALOG = {
+    "first_video": ("Перший челендж", "Опублікувати перше відео-звіт."),
+    "weekly_warrior": ("Воїн тижня", "Завершити 3 челенджі."),
+    "social_butterfly": ("Соціальний метелик", "Отримати 10 лайків на свої відео."),
+    "creative_mind": ("Творчий розум", "Створити 5 власних челенджів."),
+    "xp_hunter": ("Мисливець за XP", "Набрати 1000 XP."),
+    "premium_star": ("Premium-зірка", "Активувати ChallengeHub Premium."),
+}
+
+
+def _grant_badge(db: Session, user_id: str, badge_code: str) -> None:
+    if badge_code not in BADGE_CATALOG:
+        return
+    exists = (
+        db.query(UserBadgeORM)
+        .filter(UserBadgeORM.user_id == user_id, UserBadgeORM.badge_code == badge_code)
+        .first()
+    )
+    if exists:
+        return
+    title, description = BADGE_CATALOG[badge_code]
+    db.add(
+        UserBadgeORM(
+            id=f"badge_{uuid4().hex[:10]}",
+            user_id=user_id,
+            badge_code=badge_code,
+            title=title,
+            description=description,
+            is_pinned=False,
+        )
+    )
+
+
+def _refresh_user_badges(db: Session, user: MobileUserORM) -> None:
+    videos_count = db.query(ModerationVideoORM).filter(ModerationVideoORM.author_user_id == user.id).count()
+    completed_count = (
+        db.query(ChallengeParticipationORM)
+        .filter(ChallengeParticipationORM.user_id == user.id, ChallengeParticipationORM.status == "COMPLETED")
+        .count()
+    )
+    created_count = db.query(UserChallengeORM).filter(UserChallengeORM.created_by_user_id == user.id).count()
+    likes_received = (
+        db.query(func.count(VideoLikeORM.id))
+        .join(ModerationVideoORM, ModerationVideoORM.id == VideoLikeORM.video_id)
+        .filter(ModerationVideoORM.author_user_id == user.id)
+        .scalar()
+        or 0
+    )
+    if videos_count >= 1:
+        _grant_badge(db, user.id, "first_video")
+    if completed_count >= 3:
+        _grant_badge(db, user.id, "weekly_warrior")
+    if likes_received >= 10:
+        _grant_badge(db, user.id, "social_butterfly")
+    if created_count >= 5:
+        _grant_badge(db, user.id, "creative_mind")
+    if user.xp >= 1000:
+        _grant_badge(db, user.id, "xp_hunter")
+    if user.is_premium:
+        _grant_badge(db, user.id, "premium_star")
+
+
 def _issue_mobile_token(user: MobileUserORM, db: Session) -> MobileTokenResponse:
     user.last_active_at = now_utc()
     token = f"mobile_{uuid4().hex}"
@@ -290,6 +352,9 @@ def create_mobile_challenge(
         status="PUBLISHED",
     )
     db.add(challenge)
+    user = db.get(MobileUserORM, current_user.id)
+    if user:
+        _refresh_user_badges(db, user)
     db.commit()
     db.refresh(challenge)
     return _challenge_response(challenge, "USER", current_user.full_name)
@@ -342,6 +407,31 @@ def join_challenge(
     return ChallengeParticipationResponse(**to_dict(row))
 
 
+@router.post("/challenges/{challenge_id}/leave", response_model=ChallengeParticipationResponse)
+def leave_challenge(
+    challenge_id: str,
+    payload: JoinChallengeRequest,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> ChallengeParticipationResponse:
+    row = (
+        db.query(ChallengeParticipationORM)
+        .filter(
+            ChallengeParticipationORM.user_id == current_user.id,
+            ChallengeParticipationORM.challenge_id == challenge_id,
+            ChallengeParticipationORM.challenge_type == payload.challenge_type,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participation not found")
+    row.status = "LEFT"
+    row.completed_at = None
+    db.commit()
+    db.refresh(row)
+    return ChallengeParticipationResponse(**to_dict(row))
+
+
 @router.post("/videos", response_model=MobileVideoResponse)
 async def upload_challenge_video(
     challenge_id: str = Form(...),
@@ -389,6 +479,7 @@ async def upload_challenge_video(
     user = db.get(MobileUserORM, current_user.id)
     if user:
         user.xp += min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
+        _refresh_user_badges(db, user)
     db.add(video)
     db.commit()
     db.refresh(video)
@@ -408,6 +499,9 @@ def like_video(
     if not existing:
         db.add(VideoLikeORM(id=f"vl_{uuid4().hex[:10]}", video_id=video_id, user_id=current_user.id))
         video.likes_count += 1
+        author = db.get(MobileUserORM, video.author_user_id)
+        if author:
+            _refresh_user_badges(db, author)
         db.commit()
         db.refresh(video)
     return _video_response(video, db, current_user.id)
@@ -537,8 +631,43 @@ def get_my_badges(
     current_user: MobileUserResponse = Depends(get_current_mobile_user),
     db: Session = Depends(get_db),
 ) -> list[BadgeResponse]:
+    user = db.get(MobileUserORM, current_user.id)
+    if user:
+        _refresh_user_badges(db, user)
+        db.commit()
     rows = db.execute(select(UserBadgeORM).where(UserBadgeORM.user_id == current_user.id)).scalars().all()
+    for row in rows:
+        if row.badge_code in BADGE_CATALOG:
+            row.title, row.description = BADGE_CATALOG[row.badge_code]
     return [BadgeResponse(**to_dict(row)) for row in rows]
+
+
+@router.get("/profile/me/challenges", response_model=list[MobileChallengeResponse])
+def get_my_challenges(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> list[MobileChallengeResponse]:
+    rows = (
+        db.execute(
+            select(ChallengeParticipationORM)
+            .where(ChallengeParticipationORM.user_id == current_user.id, ChallengeParticipationORM.status.in_(["ACTIVE", "COMPLETED"]))
+            .order_by(ChallengeParticipationORM.started_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    creators = {u.id: u.full_name for u in db.execute(select(MobileUserORM)).scalars().all()}
+    result: list[MobileChallengeResponse] = []
+    for participation in rows:
+        if participation.challenge_type == "SPONSORED":
+            challenge = db.get(SponsoredChallengeORM, participation.challenge_id)
+            if challenge:
+                result.append(_challenge_response(challenge, "SPONSORED"))
+        else:
+            challenge = db.get(UserChallengeORM, participation.challenge_id)
+            if challenge:
+                result.append(_challenge_response(challenge, "USER", creators.get(challenge.created_by_user_id)))
+    return result
 
 
 @router.get("/profile/me/videos", response_model=list[MobileVideoResponse])
@@ -713,6 +842,7 @@ def premium_success(
 
     if not user.is_premium:
         user.is_premium = True
+        _refresh_user_badges(db, user)
         db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована."))
         db.commit()
     deep_link = "challengehub://premium/success"
