@@ -62,6 +62,28 @@ class MobileTokenORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class UserIntegrationORM(Base):
+    __tablename__ = "user_integrations"
+    __table_args__ = (UniqueConstraint("user_id", "provider", name="ux_user_integrations_user_provider"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_account_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class IntegrationStateORM(Base):
+    __tablename__ = "integration_states"
+    state: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class UserFollowORM(Base):
     __tablename__ = "user_follows"
     __table_args__ = (UniqueConstraint("follower_id", "followed_id", name="ux_user_follows_pair"),)
@@ -270,6 +292,9 @@ def init_db() -> None:
             "UPDATE mobile_users SET auth_provider = 'password' WHERE auth_provider IS NULL",
             "ALTER TABLE mobile_users ADD COLUMN fcm_token TEXT NULL",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
+            "CREATE UNIQUE INDEX ux_user_integrations_user_provider ON user_integrations (user_id, provider)",
+            "CREATE TABLE IF NOT EXISTS integration_states (state VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_follows (id VARCHAR(64) PRIMARY KEY, follower_id VARCHAR(64) NOT NULL, followed_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE UNIQUE INDEX ux_user_follows_pair ON user_follows (follower_id, followed_id)",
             "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",

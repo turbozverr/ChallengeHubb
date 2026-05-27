@@ -181,5 +181,22 @@ class PremiumCheckoutResponse(BaseModel):
     checkout_url: str
 
 
+class IntegrationStatusResponse(BaseModel):
+    provider: str
+    connected: bool
+    external_account_name: str | None = None
+
+
+class IntegrationConnectResponse(BaseModel):
+    connect_url: str
+
+
+class VideoExportResponse(BaseModel):
+    provider: str
+    exported: bool
+    external_url: str | None = None
+    message: str
+
+
 class FcmTokenRequest(BaseModel):
     token: str = Field(min_length=10)

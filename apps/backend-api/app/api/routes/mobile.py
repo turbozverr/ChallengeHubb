@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 import json
@@ -20,9 +21,11 @@ from app.infrastructure.db import (
     ReportTicketORM,
     SponsoredChallengeORM,
     SystemSettingsORM,
+    IntegrationStateORM,
     UserBadgeORM,
     UserChallengeORM,
     UserFollowORM,
+    UserIntegrationORM,
     VideoCommentORM,
     VideoCommentLikeORM,
     VideoLikeORM,
@@ -40,6 +43,8 @@ from app.schemas.mobile import (
     CreateMobileChallengeRequest,
     FcmTokenRequest,
     GoogleLoginRequest,
+    IntegrationConnectResponse,
+    IntegrationStatusResponse,
     JoinChallengeRequest,
     LeaderboardEntryResponse,
     MobileChallengeResponse,
@@ -54,6 +59,7 @@ from app.schemas.mobile import (
     PublicProfileResponse,
     ReportVideoRequest,
     UpdateMobileProfileRequest,
+    VideoExportResponse,
 )
 
 router = APIRouter(prefix="/mobile", tags=["mobile"])
@@ -235,47 +241,131 @@ def _issue_mobile_token(user: MobileUserORM, db: Session) -> MobileTokenResponse
     return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
 
 
-def _fallback_assistant_answer(message: str, xp: int, challenge: SponsoredChallengeORM | None) -> str:
-    challenge_part = f" Рекомендую почати з челенджу \"{challenge.title}\"." if challenge else ""
+def _fallback_assistant_answer(message: str, xp: int, challenge: SponsoredChallengeORM | UserChallengeORM | None) -> str:
+    challenge_part = f' Рекомендую почати з челенджу "{challenge.title}".' if challenge else ""
     return (
         f"Ти маєш {xp} XP. Сформулюй коротку ціль на сьогодні, запиши відео до 30 секунд "
         f"і додай зрозумілий опис.{challenge_part} "
-        f"За твоїм запитом \"{message}\" найкраща дія зараз: обрати один челендж, виконати його без відкладання "
+        f'За твоїм запитом "{message}" найкраща дія зараз: обрати один челендж, виконати його без відкладання '
         "і не гнатися за ідеальним результатом."
     )
 
 
-def _call_gemini_assistant(message: str, user: MobileUserORM, challenge: SponsoredChallengeORM | None) -> str:
-    if not settings.gemini_api_key:
-        return _fallback_assistant_answer(message, user.xp, challenge)
+def _challenge_participants_count(db: Session, challenge_id: str, challenge_type: str) -> int:
+    return int(
+        db.execute(
+            select(func.count(ChallengeParticipationORM.id)).where(
+                ChallengeParticipationORM.challenge_id == challenge_id,
+                ChallengeParticipationORM.challenge_type == challenge_type,
+                ChallengeParticipationORM.status.in_(["ACTIVE", "COMPLETED"]),
+            )
+        ).scalar_one()
+        or 0
+    )
 
-    system_prompt = """
-Ти AI-помічник мобільного застосунку ChallengeHub.
-Відповідай українською мовою, коротко, конкретно і дружньо.
-Твоя задача: мотивувати користувача виконувати короткі відео-челенджі, радити безпечні ідеї,
-пояснювати як отримати XP/значки, нагадувати про ліміт активних челенджів і преміум-функції.
-Не вигадуй неіснуючі дані. Якщо бракує інформації, запропонуй практичний наступний крок.
-Не давай небезпечних, образливих, незаконних або медичних/фінансових інструкцій.
-Формат відповіді: 2-5 речень або короткий список до 4 пунктів.
-""".strip()
+
+def _challenge_context_row(db: Session, row: SponsoredChallengeORM | UserChallengeORM, challenge_type: str) -> dict[str, object]:
+    return {
+        "id": row.id,
+        "type": challenge_type,
+        "title": row.title,
+        "description": row.description,
+        "difficulty": row.difficulty,
+        "duration_days": row.duration_days,
+        "xp_reward": row.xp_reward,
+        "participants_count": _challenge_participants_count(db, row.id, challenge_type),
+    }
+
+
+def _assistant_context(db: Session, user: MobileUserORM) -> tuple[dict[str, object], SponsoredChallengeORM | UserChallengeORM | None]:
+    badges = db.execute(
+        select(UserBadgeORM)
+        .where(UserBadgeORM.user_id == user.id)
+        .order_by(UserBadgeORM.created_at.desc())
+    ).scalars().all()
+    participations = db.execute(
+        select(ChallengeParticipationORM)
+        .where(ChallengeParticipationORM.user_id == user.id)
+        .order_by(ChallengeParticipationORM.started_at.desc())
+    ).scalars().all()
+    sponsored = db.execute(
+        select(SponsoredChallengeORM)
+        .where(SponsoredChallengeORM.status == "PUBLISHED")
+        .order_by(SponsoredChallengeORM.xp_reward.desc(), SponsoredChallengeORM.published_at.desc(), SponsoredChallengeORM.created_at.desc())
+        .limit(40)
+    ).scalars().all()
+    regular = db.execute(
+        select(UserChallengeORM)
+        .where(UserChallengeORM.status == "PUBLISHED")
+        .order_by(UserChallengeORM.xp_reward.desc(), UserChallengeORM.created_at.desc())
+        .limit(40)
+    ).scalars().all()
+
+    challenge_by_key: dict[tuple[str, str], SponsoredChallengeORM | UserChallengeORM] = {}
+    challenge_by_key.update({("SPONSORED", row.id): row for row in sponsored})
+    challenge_by_key.update({("USER", row.id): row for row in regular})
+
+    participation_context = []
+    for item in participations[:20]:
+        challenge = challenge_by_key.get((item.challenge_type, item.challenge_id))
+        if not challenge:
+            challenge = db.get(SponsoredChallengeORM, item.challenge_id) if item.challenge_type == "SPONSORED" else db.get(UserChallengeORM, item.challenge_id)
+        participation_context.append(
+            {
+                "challenge_id": item.challenge_id,
+                "challenge_type": item.challenge_type,
+                "title": challenge.title if challenge else None,
+                "status": item.status,
+                "started_at": item.started_at.isoformat() if item.started_at else None,
+                "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+            }
+        )
+
+    challenges = [_challenge_context_row(db, row, "SPONSORED") for row in sponsored]
+    challenges += [_challenge_context_row(db, row, "USER") for row in regular]
+    suggested = next(iter(sponsored), None) or next(iter(regular), None)
     context = {
         "user": {
             "id": user.id,
             "username": user.username,
+            "full_name": user.full_name,
             "xp": user.xp,
+            "level": (user.xp // 1000) + 1,
             "is_premium": user.is_premium,
             "status": user.status,
         },
-        "suggested_challenge": {
-            "id": challenge.id,
-            "title": challenge.title,
-            "difficulty": challenge.difficulty,
-            "duration_days": challenge.duration_days,
-            "xp_reward": challenge.xp_reward,
-        }
-        if challenge
-        else None,
+        "badges": [
+            {
+                "code": badge.badge_code,
+                "title": badge.title,
+                "description": badge.description,
+                "is_pinned": badge.is_pinned,
+                "earned_at": badge.created_at.isoformat() if badge.created_at else None,
+            }
+            for badge in badges
+        ],
+        "participations": participation_context,
+        "available_challenges": challenges,
+        "ranking_hint": "Для топу челенджів враховуй xp_reward, participants_count, difficulty і duration_days. Не вигадуй челенджі поза available_challenges.",
     }
+    return context, suggested
+
+
+def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tuple[str, str | None]:
+    context, suggested_challenge = _assistant_context(db, user)
+    suggested_id = suggested_challenge.id if suggested_challenge else None
+    if not settings.gemini_api_key:
+        return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+
+    system_prompt = """
+Ти AI-помічник мобільного застосунку ChallengeHub.
+Відповідай українською мовою, коротко, конкретно і дружньо.
+Ти бачиш реальний контекст користувача: XP, рівень, premium-статус, отримані значки, участі в челенджах і доступні челенджі.
+Можеш радити топ челенджів, пояснювати як отримати XP/значки, пропонувати ідеї для відео і нагадувати про безпечну поведінку.
+Не вигадуй неіснуючі значки, челенджі, нагороди або статистику. Якщо даних бракує, прямо скажи це і запропонуй практичний наступний крок.
+Не давай небезпечних, образливих, незаконних або медичних/фінансових інструкцій.
+Формат відповіді: 2-5 речень або короткий список до 4 пунктів.
+""".strip()
     body = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [
@@ -295,7 +385,7 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, challenge: Sponsor
         "generationConfig": {
             "temperature": 0.7,
             "topP": 0.9,
-            "maxOutputTokens": 420,
+            "maxOutputTokens": 520,
         },
     }
     request = Request(
@@ -312,9 +402,85 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, challenge: Sponsor
             payload = json.loads(response.read().decode("utf-8"))
         parts = payload["candidates"][0]["content"]["parts"]
         text = "".join(part.get("text", "") for part in parts).strip()
-        return text or _fallback_assistant_answer(message, user.xp, challenge)
+        return text or _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
     except Exception:
-        return _fallback_assistant_answer(message, user.xp, challenge)
+        return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+
+
+def _youtube_oauth_configured() -> bool:
+    return bool(settings.google_client_id and settings.google_client_secret and settings.youtube_redirect_url)
+
+
+def _youtube_token_request(payload: dict[str, str]) -> dict[str, object]:
+    request = Request(
+        "https://oauth2.googleapis.com/token",
+        data=urlencode(payload).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _refresh_youtube_access_token(db: Session, integration: UserIntegrationORM) -> str:
+    if integration.access_token and integration.token_expires_at and integration.token_expires_at > now_utc() + timedelta(seconds=60):
+        return integration.access_token
+    if not integration.refresh_token:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="YouTube account must be connected again")
+    data = _youtube_token_request(
+        {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "refresh_token": integration.refresh_token,
+            "grant_type": "refresh_token",
+        }
+    )
+    integration.access_token = str(data["access_token"])
+    integration.token_expires_at = now_utc() + timedelta(seconds=int(data.get("expires_in", 3600)))
+    integration.updated_at = now_utc()
+    db.commit()
+    return integration.access_token
+
+
+def _youtube_upload(access_token: str, video: ModerationVideoORM) -> str:
+    path = Path(video.url)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file is not available on backend storage")
+    metadata = {
+        "snippet": {
+            "title": f"ChallengeHub Shorts: {video.description or video.id}"[:100],
+            "description": f"{video.description or ''}\n\nОпубліковано з ChallengeHub #Shorts",
+            "categoryId": "22",
+        },
+        "status": {
+            "privacyStatus": "unlisted",
+            "selfDeclaredMadeForKids": False,
+        },
+    }
+    boundary = f"challengehub_{uuid4().hex}"
+    file_bytes = path.read_bytes()
+    body = (
+        f"--{boundary}\r\n"
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{json.dumps(metadata, ensure_ascii=False)}\r\n"
+        f"--{boundary}\r\n"
+        "Content-Type: video/mp4\r\n\r\n"
+    ).encode("utf-8") + file_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+    request = Request(
+        "https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status&uploadType=multipart",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": f"multipart/related; boundary={boundary}",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    youtube_id = payload.get("id")
+    if not youtube_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload did not return video id")
+    return f"https://youtube.com/shorts/{youtube_id}"
 
 
 @router.post("/auth/register", response_model=MobileTokenResponse)
@@ -792,6 +958,112 @@ def view_video(video_id: str, db: Session = Depends(get_db)) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.get("/integrations/youtube/status", response_model=IntegrationStatusResponse)
+def youtube_status(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> IntegrationStatusResponse:
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "youtube")
+    ).scalar_one_or_none()
+    return IntegrationStatusResponse(
+        provider="youtube",
+        connected=bool(integration and integration.refresh_token),
+        external_account_name=integration.external_account_name if integration else None,
+    )
+
+
+@router.post("/integrations/youtube/connect-url", response_model=IntegrationConnectResponse)
+def youtube_connect_url(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> IntegrationConnectResponse:
+    if not _youtube_oauth_configured():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="YouTube OAuth is not configured")
+    state = f"yt_{uuid4().hex}"
+    db.add(IntegrationStateORM(state=state, user_id=current_user.id, provider="youtube"))
+    db.commit()
+    params = urlencode(
+        {
+            "client_id": settings.google_client_id,
+            "redirect_uri": settings.youtube_redirect_url,
+            "response_type": "code",
+            "scope": "https://www.googleapis.com/auth/youtube.upload openid email profile",
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": state,
+        }
+    )
+    return IntegrationConnectResponse(connect_url=f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
+
+
+@router.get("/integrations/youtube/callback", response_class=HTMLResponse)
+def youtube_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+) -> str:
+    if error:
+        return _premium_page("YouTube не підключено", f"Google повернув помилку: {error}")
+    state_row = db.get(IntegrationStateORM, state or "")
+    if not code or not state_row or state_row.provider != "youtube":
+        return _premium_page("YouTube не підключено", "OAuth-сесію не знайдено або вона застаріла.")
+    try:
+        token_data = _youtube_token_request(
+            {
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.youtube_redirect_url,
+            }
+        )
+    except Exception:
+        return _premium_page("YouTube не підключено", "Не вдалося отримати OAuth token від Google.")
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == state_row.user_id, UserIntegrationORM.provider == "youtube")
+    ).scalar_one_or_none()
+    if not integration:
+        integration = UserIntegrationORM(id=f"int_{uuid4().hex[:10]}", user_id=state_row.user_id, provider="youtube")
+        db.add(integration)
+    integration.access_token = str(token_data["access_token"])
+    if token_data.get("refresh_token"):
+        integration.refresh_token = str(token_data["refresh_token"])
+    integration.token_expires_at = now_utc() + timedelta(seconds=int(token_data.get("expires_in", 3600)))
+    integration.external_account_name = "YouTube"
+    integration.updated_at = now_utc()
+    db.delete(state_row)
+    db.commit()
+    return _premium_page("YouTube підключено", "Тепер можна експортувати відео в YouTube Shorts після публікації.", "challengehub://integrations/youtube/success")
+
+
+@router.post("/videos/{video_id}/export/youtube", response_model=VideoExportResponse)
+def export_video_to_youtube(
+    video_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> VideoExportResponse:
+    video = db.get(ModerationVideoORM, video_id)
+    if not video or video.author_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    if video.status != "PUBLISHED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only published videos can be exported")
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "youtube")
+    ).scalar_one_or_none()
+    if not integration or not integration.refresh_token:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="YouTube account is not connected")
+    access_token = _refresh_youtube_access_token(db, integration)
+    try:
+        external_url = _youtube_upload(access_token, video)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload failed") from exc
+    return VideoExportResponse(provider="youtube", exported=True, external_url=external_url, message="Відео експортовано в YouTube Shorts")
+
+
 @router.get("/profile/me", response_model=MobileUserResponse)
 def get_profile(current_user: MobileUserResponse = Depends(get_current_mobile_user)) -> MobileUserResponse:
     return current_user
@@ -951,14 +1223,8 @@ def assistant(
     user = db.get(MobileUserORM, current_user.id)
     if not user or not user.is_premium:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AI assistant is available for Premium users only")
-    challenge = db.execute(
-        select(SponsoredChallengeORM)
-        .where(SponsoredChallengeORM.status == "PUBLISHED")
-        .order_by(SponsoredChallengeORM.published_at.desc(), SponsoredChallengeORM.created_at.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    answer = _call_gemini_assistant(payload.message, user, challenge)
-    return AssistantResponse(answer=answer, suggested_challenge_id=challenge.id if challenge else None)
+    answer, suggested_challenge_id = _call_gemini_assistant(payload.message, user, db)
+    return AssistantResponse(answer=answer, suggested_challenge_id=suggested_challenge_id)
 
 
 @router.post("/premium/checkout", response_model=PremiumCheckoutResponse)
@@ -1068,3 +1334,4 @@ def premium_success(
 @router.get("/premium/cancel", response_class=HTMLResponse)
 def premium_cancel() -> str:
     return _premium_page("Оплату скасовано", "Premium не активовано. Ви можете повернутися до застосунку і спробувати ще раз.")
+

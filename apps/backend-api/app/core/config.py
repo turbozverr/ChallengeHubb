@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     mysql_dsn: str = "mysql+pymysql://challengehub:challengehub@localhost:3306/challengehub"
     google_client_id: str = "336495115484-s2r5lp1kqv7s4cupmkddi7a8nefgopnj.apps.googleusercontent.com"
+    google_client_secret: str = ""
+    youtube_redirect_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/integrations/youtube/callback"
     stripe_publishable_key: str = "pk_test_51TbOgKGfPrFAXeac6INs4P6ST2wcg5ltrd9olyUe23VAFuWFd1BOyJ4K4lNDL08UDSIOZ2IujMSL2aDmKHfNbmUM00TJVLbz50"
     stripe_secret_key: str = "sk_test_51TbOgKGfPrFAXeacBxQAYjYjtEdL982l1Ci8hkOOVIjfmOMdp22BpPTwrMwMtmXR11BwNyrRGhb93iGxMzY7v54Y00EHj2Kisg"
     stripe_price_id: str = "price_1TbOm5GfPrFAXeacQGQ9OwFE"
