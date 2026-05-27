@@ -422,8 +422,14 @@ def _youtube_token_request(payload: dict[str, str]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _as_naive_utc(value):
+    return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) else value
+
+
 def _refresh_youtube_access_token(db: Session, integration: UserIntegrationORM) -> str:
-    if integration.access_token and integration.token_expires_at and integration.token_expires_at > now_utc() + timedelta(seconds=60):
+    expires_at = _as_naive_utc(integration.token_expires_at) if integration.token_expires_at else None
+    refresh_deadline = _as_naive_utc(now_utc() + timedelta(seconds=60))
+    if integration.access_token and expires_at and expires_at > refresh_deadline:
         return integration.access_token
     if not integration.refresh_token:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="YouTube account must be connected again")
