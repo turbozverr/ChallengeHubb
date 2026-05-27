@@ -22,6 +22,7 @@ from app.infrastructure.db import (
     SystemSettingsORM,
     UserBadgeORM,
     UserChallengeORM,
+    UserFollowORM,
     VideoCommentORM,
     VideoCommentLikeORM,
     VideoLikeORM,
@@ -50,6 +51,7 @@ from app.schemas.mobile import (
     NotificationResponse,
     PinBadgesRequest,
     PremiumCheckoutResponse,
+    PublicProfileResponse,
     ReportVideoRequest,
     UpdateMobileProfileRequest,
 )
@@ -99,17 +101,67 @@ def _mobile_user_id_from_header(authorization: str | None, db: Session) -> str |
 def _challenge_response(
     row: SponsoredChallengeORM | UserChallengeORM,
     challenge_type: str,
+    db: Session,
     creator_name: str | None = None,
     participation: ChallengeParticipationORM | None = None,
 ) -> MobileChallengeResponse:
     data = to_dict(row)
     data["challenge_type"] = challenge_type
     data["creator_name"] = creator_name
+    data["participants_count"] = int(
+        db.scalar(
+            select(func.count(ChallengeParticipationORM.id)).where(
+                ChallengeParticipationORM.challenge_id == row.id,
+                ChallengeParticipationORM.challenge_type == challenge_type,
+                ChallengeParticipationORM.status.in_(["ACTIVE", "COMPLETED"]),
+            )
+        )
+        or 0
+    )
     if participation:
         data["participation_status"] = participation.status
         data["started_at"] = participation.started_at.isoformat() if participation.started_at else None
         data["completed_at"] = participation.completed_at.isoformat() if participation.completed_at else None
     return MobileChallengeResponse(**data)
+
+
+def _public_profile_response(user: MobileUserORM, db: Session, viewer_id: str | None = None) -> PublicProfileResponse:
+    badges = db.execute(select(UserBadgeORM).where(UserBadgeORM.user_id == user.id)).scalars().all()
+    videos = db.execute(
+        select(ModerationVideoORM)
+        .where(ModerationVideoORM.author_user_id == user.id, ModerationVideoORM.status == "PUBLISHED")
+        .order_by(ModerationVideoORM.created_at.desc())
+    ).scalars().all()
+    participations = db.execute(
+        select(ChallengeParticipationORM)
+        .where(ChallengeParticipationORM.user_id == user.id, ChallengeParticipationORM.status.in_(["ACTIVE", "COMPLETED"]))
+        .order_by(ChallengeParticipationORM.started_at.desc())
+    ).scalars().all()
+    creators = {u.id: u.full_name for u in db.execute(select(MobileUserORM)).scalars().all()}
+    challenges: list[MobileChallengeResponse] = []
+    for participation in participations:
+        if participation.challenge_type == "SPONSORED":
+            challenge = db.get(SponsoredChallengeORM, participation.challenge_id)
+            if challenge:
+                challenges.append(_challenge_response(challenge, "SPONSORED", db, participation=participation))
+        else:
+            challenge = db.get(UserChallengeORM, participation.challenge_id)
+            if challenge:
+                challenges.append(_challenge_response(challenge, "USER", db, creators.get(challenge.created_by_user_id), participation))
+    followers_count = db.scalar(select(func.count(UserFollowORM.id)).where(UserFollowORM.followed_id == user.id)) or 0
+    following_count = db.scalar(select(func.count(UserFollowORM.id)).where(UserFollowORM.follower_id == user.id)) or 0
+    is_following = False
+    if viewer_id and viewer_id != user.id:
+        is_following = db.query(UserFollowORM).filter(UserFollowORM.follower_id == viewer_id, UserFollowORM.followed_id == user.id).first() is not None
+    return PublicProfileResponse(
+        user=_mobile_user_response(user),
+        badges=[BadgeResponse(**to_dict(row)) for row in badges],
+        videos=[_video_response(row, db, viewer_id) for row in videos],
+        challenges=challenges,
+        followers_count=int(followers_count),
+        following_count=int(following_count),
+        is_following=is_following,
+    )
 
 
 BADGE_CATALOG = {
@@ -340,11 +392,62 @@ def mobile_me(current_user: MobileUserResponse = Depends(get_current_mobile_user
     return current_user
 
 
+@router.get("/users/{user_id}/profile", response_model=PublicProfileResponse)
+def get_public_profile(
+    user_id: str,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> PublicProfileResponse:
+    user = db.get(MobileUserORM, user_id)
+    if not user or user.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    viewer_id = _mobile_user_id_from_header(authorization, db)
+    return _public_profile_response(user, db, viewer_id)
+
+
+@router.post("/users/{user_id}/follow", response_model=PublicProfileResponse)
+def follow_user(
+    user_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> PublicProfileResponse:
+    if user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot follow yourself")
+    user = db.get(MobileUserORM, user_id)
+    if not user or user.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    existing = db.query(UserFollowORM).filter(UserFollowORM.follower_id == current_user.id, UserFollowORM.followed_id == user_id).first()
+    if not existing:
+        db.add(UserFollowORM(id=f"uf_{uuid4().hex[:10]}", follower_id=current_user.id, followed_id=user_id))
+        db.commit()
+    return _public_profile_response(user, db, current_user.id)
+
+
+@router.delete("/users/{user_id}/follow", response_model=PublicProfileResponse)
+def unfollow_user(
+    user_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> PublicProfileResponse:
+    user = db.get(MobileUserORM, user_id)
+    if not user or user.status != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    existing = db.query(UserFollowORM).filter(UserFollowORM.follower_id == current_user.id, UserFollowORM.followed_id == user_id).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+    return _public_profile_response(user, db, current_user.id)
+
+
 @router.get("/feed", response_model=list[MobileVideoResponse])
 def get_feed(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> list[MobileVideoResponse]:
     current_user_id = _mobile_user_id_from_header(authorization, db)
+    current_user = db.get(MobileUserORM, current_user_id) if current_user_id else None
+    filters = [ModerationVideoORM.status == "PUBLISHED"]
+    if current_user and current_user.is_premium:
+        filters.append(ModerationVideoORM.is_ad == False)  # noqa: E712
     videos = (
-        db.execute(select(ModerationVideoORM).where(ModerationVideoORM.status == "PUBLISHED").order_by(ModerationVideoORM.created_at.desc()))
+        db.execute(select(ModerationVideoORM).where(*filters).order_by(ModerationVideoORM.created_at.desc()))
         .scalars()
         .all()
     )
@@ -356,8 +459,8 @@ def list_mobile_challenges(db: Session = Depends(get_db)) -> list[MobileChalleng
     sponsored = db.execute(select(SponsoredChallengeORM).where(SponsoredChallengeORM.status == "PUBLISHED")).scalars().all()
     regular = db.execute(select(UserChallengeORM).where(UserChallengeORM.status == "PUBLISHED")).scalars().all()
     creators = {u.id: u.full_name for u in db.execute(select(MobileUserORM)).scalars().all()}
-    result = [_challenge_response(item, "SPONSORED") for item in sponsored]
-    result.extend(_challenge_response(item, "USER", creators.get(item.created_by_user_id)) for item in regular)
+    result = [_challenge_response(item, "SPONSORED", db) for item in sponsored]
+    result.extend(_challenge_response(item, "USER", db, creators.get(item.created_by_user_id)) for item in regular)
     return result
 
 
@@ -385,7 +488,7 @@ def create_mobile_challenge(
         _refresh_user_badges(db, user)
     db.commit()
     db.refresh(challenge)
-    return _challenge_response(challenge, "USER", current_user.full_name)
+    return _challenge_response(challenge, "USER", db, current_user.full_name)
 
 
 @router.post("/challenges/{challenge_id}/join", response_model=ChallengeParticipationResponse)
@@ -506,7 +609,10 @@ async def upload_challenge_video(
         participation.completed_at = now_utc()
     user = db.get(MobileUserORM, current_user.id)
     if user:
-        user.xp += min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
+        reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
+        if user.is_premium:
+            reward *= 2
+        user.xp += reward
         _refresh_user_badges(db, user)
     db.add(video)
     db.commit()
@@ -754,11 +860,11 @@ def get_my_challenges(
         if participation.challenge_type == "SPONSORED":
             challenge = db.get(SponsoredChallengeORM, participation.challenge_id)
             if challenge:
-                result.append(_challenge_response(challenge, "SPONSORED", participation=participation))
+                result.append(_challenge_response(challenge, "SPONSORED", db, participation=participation))
         else:
             challenge = db.get(UserChallengeORM, participation.challenge_id)
             if challenge:
-                result.append(_challenge_response(challenge, "USER", creators.get(challenge.created_by_user_id), participation))
+                result.append(_challenge_response(challenge, "USER", db, creators.get(challenge.created_by_user_id), participation))
     return result
 
 

@@ -61,6 +61,15 @@ class MobileTokenORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class UserFollowORM(Base):
+    __tablename__ = "user_follows"
+    __table_args__ = (UniqueConstraint("follower_id", "followed_id", name="ux_user_follows_pair"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    follower_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    followed_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class UserChallengeORM(Base):
     __tablename__ = "user_challenges"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -257,6 +266,8 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
             "ALTER TABLE mobile_users ADD COLUMN fcm_token TEXT NULL",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS user_follows (id VARCHAR(64) PRIMARY KEY, follower_id VARCHAR(64) NOT NULL, followed_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE UNIQUE INDEX ux_user_follows_pair ON user_follows (follower_id, followed_id)",
             "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS challenge_participations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, challenge_id VARCHAR(64) NOT NULL, challenge_type VARCHAR(32) NOT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', started_at DATETIME NULL, completed_at DATETIME NULL)",
             "CREATE UNIQUE INDEX ux_participation_user_challenge ON challenge_participations (user_id, challenge_id, challenge_type)",

@@ -36,6 +36,16 @@ class MobileTokenResponse(BaseModel):
     user: MobileUserResponse
 
 
+class PublicProfileResponse(BaseModel):
+    user: MobileUserResponse
+    badges: list["BadgeResponse"] = []
+    videos: list["MobileVideoResponse"] = []
+    challenges: list["MobileChallengeResponse"] = []
+    followers_count: int = 0
+    following_count: int = 0
+    is_following: bool = False
+
+
 class UpdateMobileProfileRequest(BaseModel):
     username: str | None = Field(default=None, min_length=3, max_length=64)
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
@@ -58,6 +68,7 @@ class MobileChallengeResponse(BaseModel):
     status: str
     created_at: str
     creator_name: str | None = None
+    participants_count: int = 0
     participation_status: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
