@@ -449,14 +449,24 @@ def _refresh_youtube_access_token(db: Session, integration: UserIntegrationORM) 
     return integration.access_token
 
 
-def _youtube_upload(access_token: str, video: ModerationVideoORM) -> str:
+def _youtube_upload(access_token: str, video: ModerationVideoORM, db: Session) -> str:
     path = Path(video.url)
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file is not available on backend storage")
+    challenge_title = ""
+    if video.challenge_type == "SPONSORED":
+        challenge = db.get(SponsoredChallengeORM, video.challenge_id)
+    else:
+        challenge = db.get(UserChallengeORM, video.challenge_id)
+    if challenge and getattr(challenge, "title", None):
+        challenge_title = str(challenge.title)
+    tag_parts = re.findall(r"[A-Za-z0-9]+", challenge_title)
+    challenge_tag = f"#{''.join(part.capitalize() for part in tag_parts)[:40]}" if tag_parts else ""
+    tags = "#ChallengeHub" + (f" {challenge_tag}" if challenge_tag else "")
     metadata = {
         "snippet": {
             "title": f"ChallengeHub Shorts: {video.description or video.id}"[:100],
-            "description": f"{video.description or ''}\n\nОпубліковано з ChallengeHub #Shorts",
+            "description": f"{video.description or ''}\n\nОпубліковано з ChallengeHub {tags}",
             "categoryId": "22",
         },
         "status": {
