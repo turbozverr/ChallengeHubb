@@ -951,7 +951,12 @@ def assistant(
     user = db.get(MobileUserORM, current_user.id)
     if not user or not user.is_premium:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AI assistant is available for Premium users only")
-    challenge = db.execute(select(SponsoredChallengeORM).where(SponsoredChallengeORM.status == "PUBLISHED")).scalar_one_or_none()
+    challenge = db.execute(
+        select(SponsoredChallengeORM)
+        .where(SponsoredChallengeORM.status == "PUBLISHED")
+        .order_by(SponsoredChallengeORM.published_at.desc(), SponsoredChallengeORM.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
     answer = _call_gemini_assistant(payload.message, user, challenge)
     return AssistantResponse(answer=answer, suggested_challenge_id=challenge.id if challenge else None)
 
