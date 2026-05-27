@@ -1,5 +1,5 @@
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 import json
 from uuid import uuid4
@@ -330,6 +330,7 @@ def register_mobile_user(payload: MobileRegisterRequest, db: Session = Depends(g
         full_name=payload.full_name,
         email=payload.email,
         password=payload.password,
+        auth_provider="password",
         xp=0,
         is_premium=False,
         status="ACTIVE",
@@ -355,7 +356,7 @@ def login_mobile_user(payload: MobileLoginRequest, db: Session = Depends(get_db)
 def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_db)) -> MobileTokenResponse:
     if not settings.google_client_id:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google OAuth is not configured")
-    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={payload.id_token}"
+    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={quote(payload.id_token)}"
     try:
         with urlopen(url, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -369,13 +370,19 @@ def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_d
     user = db.execute(select(MobileUserORM).where(MobileUserORM.email == email)).scalar_one_or_none()
     if not user:
         name = data.get("name") or email.split("@")[0]
-        username = f"g_{email.split('@')[0]}".replace(".", "_")[:64]
+        base_username = f"g_{email.split('@')[0]}".replace(".", "_")[:58]
+        username = base_username
+        suffix = 1
+        while db.execute(select(MobileUserORM).where(MobileUserORM.username == username)).scalar_one_or_none():
+            username = f"{base_username}_{suffix}"[:64]
+            suffix += 1
         user = MobileUserORM(
             id=f"mu_{uuid4().hex[:10]}",
             username=username,
             full_name=name,
             email=email,
             password="GOOGLE_OAUTH",
+            auth_provider="google",
             avatar_url=data.get("picture"),
             xp=0,
             is_premium=False,
@@ -384,6 +391,10 @@ def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_d
         )
         db.add(user)
         db.flush()
+    else:
+        user.auth_provider = "google" if user.password == "GOOGLE_OAUTH" else user.auth_provider
+        if data.get("picture") and not user.avatar_url:
+            user.avatar_url = data.get("picture")
     return _issue_mobile_token(user, db)
 
 

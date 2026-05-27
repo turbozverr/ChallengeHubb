@@ -22,6 +22,7 @@ class MobileUserResponse(BaseModel):
     username: str
     full_name: str
     email: str
+    auth_provider: str = "password"
     avatar_url: str | None = None
     bio: str | None = None
     xp: int
