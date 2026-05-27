@@ -26,7 +26,7 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="sidebarTop">
           <div className="brand">
-            <img src="/logo-placeholder.svg" alt="ChallengeHub logo" className="logo" />
+            <img src="/logo-icon.png" alt="ChallengeHub logo" className="logo" />
             <h2>ChallengeHub</h2>
           </div>
           <nav>

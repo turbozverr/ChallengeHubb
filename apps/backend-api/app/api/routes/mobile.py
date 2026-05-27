@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 from urllib.parse import quote, urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import json
 from uuid import uuid4
@@ -504,6 +505,27 @@ def _tiktok_token_request(payload: dict[str, str]) -> dict[str, object]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _tiktok_error_detail(payload: dict[str, object], fallback: str) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        code = str(error.get("code") or "").strip()
+        message = str(error.get("message") or "").strip()
+        log_id = str(error.get("log_id") or error.get("logid") or "").strip()
+        parts = [part for part in [code, message, f"log_id={log_id}" if log_id else ""] if part]
+        if parts and code != "ok":
+            return f"{fallback}: {'; '.join(parts)}"
+    return fallback
+
+
+def _read_tiktok_http_error(error: HTTPError, fallback: str) -> str:
+    try:
+        body = error.read().decode("utf-8")
+        payload = json.loads(body)
+        return _tiktok_error_detail(payload, f"{fallback}: HTTP {error.code}")
+    except Exception:
+        return f"{fallback}: HTTP {error.code}"
+
+
 def _refresh_tiktok_access_token(db: Session, integration: UserIntegrationORM) -> str:
     expires_at = _as_naive_utc(integration.token_expires_at) if integration.token_expires_at else None
     refresh_deadline = _as_naive_utc(now_utc() + timedelta(seconds=60))
@@ -548,13 +570,6 @@ def _tiktok_upload(access_token: str, video: ModerationVideoORM) -> str:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file is not available on backend storage")
     file_size = path.stat().st_size
     init_body = {
-        "post_info": {
-            "title": f"{video.description or 'ChallengeHub video'}\n\nОпубліковано з ChallengeHub",
-            "privacy_level": "SELF_ONLY",
-            "disable_duet": False,
-            "disable_comment": False,
-            "disable_stitch": False,
-        },
         "source_info": {
             "source": "FILE_UPLOAD",
             "video_size": file_size,
@@ -563,7 +578,7 @@ def _tiktok_upload(access_token: str, video: ModerationVideoORM) -> str:
         },
     }
     init_request = Request(
-        "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
         data=json.dumps(init_body).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {access_token}",
@@ -571,8 +586,14 @@ def _tiktok_upload(access_token: str, video: ModerationVideoORM) -> str:
         },
         method="POST",
     )
-    with urlopen(init_request, timeout=30) as response:
-        init_payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(init_request, timeout=30) as response:
+            init_payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_read_tiktok_http_error(exc, "TikTok upload init failed")) from exc
+    error_detail = _tiktok_error_detail(init_payload, "TikTok upload init failed")
+    if error_detail != "TikTok upload init failed":
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error_detail)
     data = init_payload.get("data") or {}
     upload_url = data.get("upload_url")
     publish_id = data.get("publish_id")
@@ -589,8 +610,11 @@ def _tiktok_upload(access_token: str, video: ModerationVideoORM) -> str:
         },
         method="PUT",
     )
-    with urlopen(upload_request, timeout=90):
-        pass
+    try:
+        with urlopen(upload_request, timeout=90):
+            pass
+    except HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=_read_tiktok_http_error(exc, "TikTok file upload failed")) from exc
     return f"tiktok_publish_id:{publish_id}"
 
 
@@ -895,6 +919,16 @@ async def upload_challenge_video(
     if participation:
         participation.status = "COMPLETED"
         participation.completed_at = now_utc()
+    else:
+        participation = ChallengeParticipationORM(
+            id=f"cp_{uuid4().hex[:10]}",
+            user_id=current_user.id,
+            challenge_id=challenge_id,
+            challenge_type=challenge_type,
+            status="COMPLETED",
+            completed_at=now_utc(),
+        )
+        db.add(participation)
     user = db.get(MobileUserORM, current_user.id)
     if user:
         reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
@@ -1108,6 +1142,20 @@ def youtube_connect_url(
     return IntegrationConnectResponse(connect_url=f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
 
 
+@router.delete("/integrations/youtube")
+def disconnect_youtube(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "youtube")
+    ).scalar_one_or_none()
+    if integration:
+        db.delete(integration)
+        db.commit()
+    return {"ok": True}
+
+
 @router.get("/integrations/youtube/callback", response_class=HTMLResponse)
 def youtube_callback(
     code: str | None = None,
@@ -1205,11 +1253,25 @@ def tiktok_connect_url(
             "client_key": settings.tiktok_client_key,
             "redirect_uri": settings.tiktok_redirect_url,
             "response_type": "code",
-            "scope": "user.info.basic,video.publish",
+            "scope": "user.info.basic,video.upload",
             "state": state,
         }
     )
     return IntegrationConnectResponse(connect_url=f"https://www.tiktok.com/v2/auth/authorize/?{params}")
+
+
+@router.delete("/integrations/tiktok")
+def disconnect_tiktok(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "tiktok")
+    ).scalar_one_or_none()
+    if integration:
+        db.delete(integration)
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/integrations/tiktok/callback", response_class=HTMLResponse)
@@ -1250,7 +1312,7 @@ def tiktok_callback(
     integration.updated_at = now_utc()
     db.delete(state_row)
     db.commit()
-    return _premium_page("TikTok підключено", "Тепер можна експортувати відео в TikTok після публікації.", "challengehub://integrations/tiktok/success")
+    return _premium_page("TikTok підключено", "Тепер можна завантажувати відео в TikTok після публікації.", "challengehub://integrations/tiktok/success")
 
 
 @router.post("/videos/{video_id}/export/tiktok", response_model=VideoExportResponse)
@@ -1276,7 +1338,7 @@ def export_video_to_tiktok(
         raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TikTok upload failed") from exc
-    return VideoExportResponse(provider="tiktok", exported=True, external_url=external_ref, message="Відео експортовано в TikTok")
+    return VideoExportResponse(provider="tiktok", exported=True, external_url=external_ref, message="Відео завантажено в TikTok. Відкрийте TikTok inbox, щоб завершити публікацію.")
 
 
 @router.get("/profile/me", response_model=MobileUserResponse)
@@ -1549,4 +1611,3 @@ def premium_success(
 @router.get("/premium/cancel", response_class=HTMLResponse)
 def premium_cancel() -> str:
     return _premium_page("Оплату скасовано", "Premium не активовано. Ви можете повернутися до застосунку і спробувати ще раз.")
-
