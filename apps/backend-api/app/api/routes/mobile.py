@@ -489,6 +489,111 @@ def _youtube_upload(access_token: str, video: ModerationVideoORM) -> str:
     return f"https://youtube.com/shorts/{youtube_id}"
 
 
+def _tiktok_oauth_configured() -> bool:
+    return bool(settings.tiktok_client_key and settings.tiktok_client_secret and settings.tiktok_redirect_url)
+
+
+def _tiktok_token_request(payload: dict[str, str]) -> dict[str, object]:
+    request = Request(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        data=urlencode(payload).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    with urlopen(request, timeout=15) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _refresh_tiktok_access_token(db: Session, integration: UserIntegrationORM) -> str:
+    expires_at = _as_naive_utc(integration.token_expires_at) if integration.token_expires_at else None
+    refresh_deadline = _as_naive_utc(now_utc() + timedelta(seconds=60))
+    if integration.access_token and expires_at and expires_at > refresh_deadline:
+        return integration.access_token
+    if not integration.refresh_token:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TikTok account must be connected again")
+    data = _tiktok_token_request(
+        {
+            "client_key": settings.tiktok_client_key,
+            "client_secret": settings.tiktok_client_secret,
+            "refresh_token": integration.refresh_token,
+            "grant_type": "refresh_token",
+        }
+    )
+    integration.access_token = str(data["access_token"])
+    integration.token_expires_at = now_utc() + timedelta(seconds=int(data.get("expires_in", 3600)))
+    if data.get("refresh_token"):
+        integration.refresh_token = str(data["refresh_token"])
+    integration.updated_at = now_utc()
+    db.commit()
+    return integration.access_token
+
+
+def _tiktok_account_name(access_token: str) -> str:
+    request = Request(
+        "https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return payload.get("data", {}).get("user", {}).get("display_name") or "TikTok"
+    except Exception:
+        return "TikTok"
+
+
+def _tiktok_upload(access_token: str, video: ModerationVideoORM) -> str:
+    path = Path(video.url)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file is not available on backend storage")
+    file_size = path.stat().st_size
+    init_body = {
+        "post_info": {
+            "title": f"{video.description or 'ChallengeHub video'}\n\nОпубліковано з ChallengeHub",
+            "privacy_level": "SELF_ONLY",
+            "disable_duet": False,
+            "disable_comment": False,
+            "disable_stitch": False,
+        },
+        "source_info": {
+            "source": "FILE_UPLOAD",
+            "video_size": file_size,
+            "chunk_size": file_size,
+            "total_chunk_count": 1,
+        },
+    }
+    init_request = Request(
+        "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        data=json.dumps(init_body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        method="POST",
+    )
+    with urlopen(init_request, timeout=30) as response:
+        init_payload = json.loads(response.read().decode("utf-8"))
+    data = init_payload.get("data") or {}
+    upload_url = data.get("upload_url")
+    publish_id = data.get("publish_id")
+    if not upload_url or not publish_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TikTok upload init failed")
+    file_bytes = path.read_bytes()
+    upload_request = Request(
+        upload_url,
+        data=file_bytes,
+        headers={
+            "Content-Type": "video/mp4",
+            "Content-Length": str(file_size),
+            "Content-Range": f"bytes 0-{file_size - 1}/{file_size}",
+        },
+        method="PUT",
+    )
+    with urlopen(upload_request, timeout=90):
+        pass
+    return f"tiktok_publish_id:{publish_id}"
+
+
 @router.post("/auth/register", response_model=MobileTokenResponse)
 def register_mobile_user(payload: MobileRegisterRequest, db: Session = Depends(get_db)) -> MobileTokenResponse:
     existing = db.execute(
@@ -1068,6 +1173,110 @@ def export_video_to_youtube(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload failed") from exc
     return VideoExportResponse(provider="youtube", exported=True, external_url=external_url, message="Відео експортовано в YouTube Shorts")
+
+
+@router.get("/integrations/tiktok/status", response_model=IntegrationStatusResponse)
+def tiktok_status(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> IntegrationStatusResponse:
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "tiktok")
+    ).scalar_one_or_none()
+    return IntegrationStatusResponse(
+        provider="tiktok",
+        connected=bool(integration and integration.refresh_token),
+        external_account_name=integration.external_account_name if integration else None,
+    )
+
+
+@router.post("/integrations/tiktok/connect-url", response_model=IntegrationConnectResponse)
+def tiktok_connect_url(
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> IntegrationConnectResponse:
+    if not _tiktok_oauth_configured():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="TikTok OAuth is not configured")
+    state = f"tt_{uuid4().hex}"
+    db.add(IntegrationStateORM(state=state, user_id=current_user.id, provider="tiktok"))
+    db.commit()
+    params = urlencode(
+        {
+            "client_key": settings.tiktok_client_key,
+            "redirect_uri": settings.tiktok_redirect_url,
+            "response_type": "code",
+            "scope": "user.info.basic,video.publish",
+            "state": state,
+        }
+    )
+    return IntegrationConnectResponse(connect_url=f"https://www.tiktok.com/v2/auth/authorize/?{params}")
+
+
+@router.get("/integrations/tiktok/callback", response_class=HTMLResponse)
+def tiktok_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+) -> str:
+    if error:
+        return _premium_page("TikTok не підключено", f"TikTok повернув помилку: {error}")
+    state_row = db.get(IntegrationStateORM, state or "")
+    if not code or not state_row or state_row.provider != "tiktok":
+        return _premium_page("TikTok не підключено", "OAuth-сесію не знайдено або вона застаріла.")
+    try:
+        token_data = _tiktok_token_request(
+            {
+                "client_key": settings.tiktok_client_key,
+                "client_secret": settings.tiktok_client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.tiktok_redirect_url,
+            }
+        )
+    except Exception:
+        return _premium_page("TikTok не підключено", "Не вдалося отримати OAuth token від TikTok.")
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == state_row.user_id, UserIntegrationORM.provider == "tiktok")
+    ).scalar_one_or_none()
+    if not integration:
+        integration = UserIntegrationORM(id=f"int_{uuid4().hex[:10]}", user_id=state_row.user_id, provider="tiktok")
+        db.add(integration)
+    integration.access_token = str(token_data["access_token"])
+    if token_data.get("refresh_token"):
+        integration.refresh_token = str(token_data["refresh_token"])
+    integration.token_expires_at = now_utc() + timedelta(seconds=int(token_data.get("expires_in", 3600)))
+    integration.external_account_name = _tiktok_account_name(integration.access_token)
+    integration.updated_at = now_utc()
+    db.delete(state_row)
+    db.commit()
+    return _premium_page("TikTok підключено", "Тепер можна експортувати відео в TikTok після публікації.", "challengehub://integrations/tiktok/success")
+
+
+@router.post("/videos/{video_id}/export/tiktok", response_model=VideoExportResponse)
+def export_video_to_tiktok(
+    video_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> VideoExportResponse:
+    video = db.get(ModerationVideoORM, video_id)
+    if not video or video.author_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    if video.status != "PUBLISHED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only published videos can be exported")
+    integration = db.execute(
+        select(UserIntegrationORM).where(UserIntegrationORM.user_id == current_user.id, UserIntegrationORM.provider == "tiktok")
+    ).scalar_one_or_none()
+    if not integration or not integration.refresh_token:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TikTok account is not connected")
+    access_token = _refresh_tiktok_access_token(db, integration)
+    try:
+        external_ref = _tiktok_upload(access_token, video)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TikTok upload failed") from exc
+    return VideoExportResponse(provider="tiktok", exported=True, external_url=external_ref, message="Відео експортовано в TikTok")
 
 
 @router.get("/profile/me", response_model=MobileUserResponse)
