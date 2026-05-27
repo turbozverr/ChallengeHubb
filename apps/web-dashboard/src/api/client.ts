@@ -42,6 +42,10 @@ export const api = {
   adminOverview: (token: string) => request<Record<string, number>>("/admin/overview", undefined, token),
   listWebUsers: (token: string) => request<WebUserResponse[]>("/web-users", undefined, token),
   listMobileUsers: (token: string) => request<MobileUserResponse[]>("/admin/mobile-users", undefined, token),
+  updateMobileUser: (token: string, userId: string, payload: { full_name?: string }) =>
+    request<MobileUserResponse>(`/admin/mobile-users/${userId}`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  deleteMobileUser: (token: string, userId: string) =>
+    request<{ ok: boolean }>(`/admin/mobile-users/${userId}`, { method: "DELETE" }, token),
   createWebUser: (
     token: string,
     payload: { full_name: string; email: string; password: string; role: string; company_name?: string }

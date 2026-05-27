@@ -96,10 +96,19 @@ def _mobile_user_id_from_header(authorization: str | None, db: Session) -> str |
     return row.user_id if row else None
 
 
-def _challenge_response(row: SponsoredChallengeORM | UserChallengeORM, challenge_type: str, creator_name: str | None = None) -> MobileChallengeResponse:
+def _challenge_response(
+    row: SponsoredChallengeORM | UserChallengeORM,
+    challenge_type: str,
+    creator_name: str | None = None,
+    participation: ChallengeParticipationORM | None = None,
+) -> MobileChallengeResponse:
     data = to_dict(row)
     data["challenge_type"] = challenge_type
     data["creator_name"] = creator_name
+    if participation:
+        data["participation_status"] = participation.status
+        data["started_at"] = participation.started_at.isoformat() if participation.started_at else None
+        data["completed_at"] = participation.completed_at.isoformat() if participation.completed_at else None
     return MobileChallengeResponse(**data)
 
 
@@ -745,11 +754,11 @@ def get_my_challenges(
         if participation.challenge_type == "SPONSORED":
             challenge = db.get(SponsoredChallengeORM, participation.challenge_id)
             if challenge:
-                result.append(_challenge_response(challenge, "SPONSORED"))
+                result.append(_challenge_response(challenge, "SPONSORED", participation=participation))
         else:
             challenge = db.get(UserChallengeORM, participation.challenge_id)
             if challenge:
-                result.append(_challenge_response(challenge, "USER", creators.get(challenge.created_by_user_id)))
+                result.append(_challenge_response(challenge, "USER", creators.get(challenge.created_by_user_id), participation))
     return result
 
 

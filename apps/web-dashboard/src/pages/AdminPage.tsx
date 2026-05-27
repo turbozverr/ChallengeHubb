@@ -15,8 +15,8 @@ type AdminTab = "dashboard" | "web-users" | "mobile-users" | "challenges" | "ad-
 
 const tabLabels: Record<AdminTab, string> = {
   dashboard: "Дашборд",
+  "mobile-users": "Користувачі",
   "web-users": "Веб-користувачі",
-  "mobile-users": "Мобільні користувачі",
   challenges: "Спонсорські челенджі",
   "ad-videos": "Рекламні відео",
   videos: "Відео",
@@ -118,18 +118,22 @@ export function AdminPage() {
   const [challengeSearch, setChallengeSearch] = useState("");
   const [challengeDifficultyFilter, setChallengeDifficultyFilter] = useState("ALL");
   const [challengeStatusFilter, setChallengeStatusFilter] = useState("ALL");
+  const [videoSearch, setVideoSearch] = useState("");
   const [videoStatusFilter, setVideoStatusFilter] = useState("ALL");
   const [videoAdFilter, setVideoAdFilter] = useState("ALL");
 
   const [usersPage, setUsersPage] = useState(1);
+  const [mobileUsersPage, setMobileUsersPage] = useState(1);
   const [challengesPage, setChallengesPage] = useState(1);
   const [videosPage, setVideosPage] = useState(1);
   const pageSize = 8;
 
   const [confirm, setConfirm] = useState<{ title: string; message: string; action: () => Promise<void> } | null>(null);
   const [editUser, setEditUser] = useState<WebUserResponse | null>(null);
+  const [editMobileUser, setEditMobileUser] = useState<MobileUserResponse | null>(null);
   const [editChallenge, setEditChallenge] = useState<SponsoredChallengeResponse | null>(null);
   const [editVideo, setEditVideo] = useState<ModerationVideoResponse | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const [newUser, setNewUser] = useState({ full_name: "", email: "", password: "", role: "MODERATOR", company_name: "" });
   const [newChallenge, setNewChallenge] = useState({
@@ -175,18 +179,22 @@ export function AdminPage() {
   const videosFiltered = useMemo(
     () =>
       videos.filter((v) => {
+        const q = videoSearch.toLowerCase();
+        const text = `${v.id} ${v.description ?? ""} ${v.url}`.toLowerCase();
         const statusOk = videoStatusFilter === "ALL" || v.status === videoStatusFilter;
         const adOk = videoAdFilter === "ALL" || (videoAdFilter === "AD" ? v.is_ad : !v.is_ad);
-        return statusOk && adOk;
+        return text.includes(q) && statusOk && adOk;
       }),
-    [videos, videoStatusFilter, videoAdFilter]
+    [videos, videoSearch, videoStatusFilter, videoAdFilter]
   );
 
   const usersTotalPages = Math.max(1, Math.ceil(usersFiltered.length / pageSize));
+  const mobileUsersTotalPages = Math.max(1, Math.ceil(mobileUsersFiltered.length / pageSize));
   const challengesTotalPages = Math.max(1, Math.ceil(challengesFiltered.length / pageSize));
   const videosTotalPages = Math.max(1, Math.ceil(videosFiltered.length / pageSize));
 
   const usersRows = usersFiltered.slice((usersPage - 1) * pageSize, usersPage * pageSize);
+  const mobileUsersRows = mobileUsersFiltered.slice((mobileUsersPage - 1) * pageSize, mobileUsersPage * pageSize);
   const challengeRows = challengesFiltered.slice((challengesPage - 1) * pageSize, challengesPage * pageSize);
   const videoRows = videosFiltered.slice((videosPage - 1) * pageSize, videosPage * pageSize);
 
@@ -227,8 +235,9 @@ export function AdminPage() {
   }, [toast]);
 
   useEffect(() => setUsersPage(1), [userSearch, userRoleFilter]);
+  useEffect(() => setMobileUsersPage(1), [mobileUserSearch]);
   useEffect(() => setChallengesPage(1), [challengeSearch, challengeDifficultyFilter, challengeStatusFilter]);
-  useEffect(() => setVideosPage(1), [videoStatusFilter, videoAdFilter]);
+  useEffect(() => setVideosPage(1), [videoSearch, videoStatusFilter, videoAdFilter]);
 
   const fieldError = (name: string) => setToast({ type: "error", message: `Заповніть поле: ${name}` });
   const dayLabels = useMemo(
@@ -258,7 +267,7 @@ export function AdminPage() {
       {error ? <p className="error">{error}</p> : null}
 
       <div className="tabs">
-        {(["dashboard", "web-users", "mobile-users", "challenges", "ad-videos", "videos", "settings"] as AdminTab[]).map((t) => (
+        {(["dashboard", "mobile-users", "web-users", "challenges", "ad-videos", "videos", "settings"] as AdminTab[]).map((t) => (
           <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
             {tabLabels[t]}
           </button>
@@ -372,11 +381,11 @@ export function AdminPage() {
             <div><label>Пароль</label><input type="password" value={newUser.password} onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))} /></div>
             <div><label>Роль</label><select value={newUser.role} onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value }))}><option value="MODERATOR">Модератор</option><option value="BUSINESS_CLIENT">Бізнес-клієнт</option><option value="ADMIN">Адміністратор</option></select></div>
             <div><label>Компанія (необов'язково)</label><input value={newUser.company_name} onChange={(e) => setNewUser((s) => ({ ...s, company_name: e.target.value }))} /></div>
-            <div><label>&nbsp;</label><button type="submit">Створити</button></div>
+            <div className="formSubmit"><button type="submit">Створити</button></div>
           </form>
 
           <hr className="sectionDivider" />
-          <div className="row">
+          <div className="filtersRow">
             <input placeholder="Пошук за ID, ПІБ, Email" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
             <select value={userRoleFilter} onChange={(e) => setUserRoleFilter(e.target.value)}>
               <option value="ALL">Всі ролі</option>
@@ -393,9 +402,11 @@ export function AdminPage() {
                 {usersRows.map((u) => (
                   <tr key={u.id}>
                     <td>{u.id}</td><td>{u.full_name}</td><td>{u.email}</td><td>{roleLabels[u.role] ?? u.role}</td>
-                    <td className="row">
-                      <button onClick={() => setEditUser(u)}>Редагувати</button>
-                      <button onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити користувача ${u.full_name}?`, action: async () => { if (!token) return; await api.deleteWebUser(token, u.id); setToast({ type: "success", message: "Користувача видалено" }); await load(); } })}>Видалити</button>
+                    <td>
+                      <div className="actionBar">
+                        <button className="actionBtn iconOnly edit" title="Редагувати" aria-label="Редагувати" onClick={() => setEditUser(u)}><span className="iconGlyph pencil">✎</span></button>
+                        <button className="actionBtn iconOnly danger" title="Видалити" aria-label="Видалити" onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити користувача ${u.full_name}?`, action: async () => { if (!token) return; await api.deleteWebUser(token, u.id); setToast({ type: "success", message: "Користувача видалено" }); await load(); } })}><span className="iconGlyph delete">⌫</span></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -412,7 +423,7 @@ export function AdminPage() {
 
       {tab === "mobile-users" && (
         <>
-          <div className="row">
+          <div className="filtersRow">
             <input
               placeholder="Пошук за ID, @логіном, іменем або Email"
               value={mobileUserSearch}
@@ -430,10 +441,11 @@ export function AdminPage() {
                   <th>XP</th>
                   <th>Premium</th>
                   <th>Статус</th>
+                  <th>Дії</th>
                 </tr>
               </thead>
               <tbody>
-                {mobileUsersFiltered.map((u) => (
+                {mobileUsersRows.map((u) => (
                   <tr key={u.id}>
                     <td>{u.id}</td>
                     <td>@{u.username}</td>
@@ -442,10 +454,21 @@ export function AdminPage() {
                     <td>{u.xp}</td>
                     <td>{u.is_premium ? "Так" : "Ні"}</td>
                     <td>{u.status === "ACTIVE" ? "Активний" : u.status}</td>
+                    <td>
+                      <div className="actionBar">
+                        <button className="actionBtn iconOnly edit" title="Редагувати ім'я" aria-label="Редагувати ім'я" onClick={() => setEditMobileUser(u)}><span className="iconGlyph pencil">✎</span></button>
+                        <button className="actionBtn iconOnly danger" title="Видалити" aria-label="Видалити" onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити користувача ${u.full_name}?`, action: async () => { if (!token) return; await api.deleteMobileUser(token, u.id); setToast({ type: "success", message: "Користувача видалено" }); await load(); } })}><span className="iconGlyph delete">⌫</span></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="pagination">
+            <button disabled={mobileUsersPage <= 1} onClick={() => setMobileUsersPage((p) => p - 1)}>Попередня</button>
+            <span>Сторінка {mobileUsersPage} з {mobileUsersTotalPages}</span>
+            <button disabled={mobileUsersPage >= mobileUsersTotalPages} onClick={() => setMobileUsersPage((p) => p + 1)}>Наступна</button>
           </div>
         </>
       )}
@@ -485,7 +508,7 @@ export function AdminPage() {
           </form>
 
           <hr className="sectionDivider" />
-          <div className="row">
+          <div className="filtersRow">
             <input placeholder="Пошук за ID, назвою, компанією" value={challengeSearch} onChange={(e) => setChallengeSearch(e.target.value)} />
             <select value={challengeDifficultyFilter} onChange={(e) => setChallengeDifficultyFilter(e.target.value)}><option value="ALL">Вся складність</option><option value="easy">Легка</option><option value="normal">Середня</option><option value="hard">Складна</option></select>
             <select value={challengeStatusFilter} onChange={(e) => setChallengeStatusFilter(e.target.value)}><option value="ALL">Всі статуси</option><option value="DRAFT">Чернетка</option><option value="PUBLISHED">Опубліковано</option><option value="BLOCKED">Заблоковано</option></select>
@@ -498,10 +521,16 @@ export function AdminPage() {
                 {challengeRows.map((c) => (
                   <tr key={c.id}>
                     <td>{c.id}</td><td>{c.title}</td><td>{difficultyLabels[c.difficulty] ?? c.difficulty}</td><td>{c.duration_days}</td><td>{c.xp_reward}</td><td>{statusLabels[c.status] ?? c.status}</td>
-                    <td className="row">
-                      <button onClick={() => setEditChallenge(c)}>Редагувати</button>
-                      <button onClick={async () => { if (!token) return; await api.publishSponsoredChallenge(token, c.id); setToast({ type: "success", message: "Челендж опубліковано" }); await load(); }}>Публікувати</button>
-                      <button onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити челендж ${c.title}?`, action: async () => { if (!token) return; await api.deleteSponsoredChallenge(token, c.id); setToast({ type: "success", message: "Челендж видалено" }); await load(); } })}>Видалити</button>
+                    <td>
+                      <div className="actionBar">
+                        <button className="actionBtn iconOnly edit" title="Редагувати" aria-label="Редагувати" onClick={() => setEditChallenge(c)}><span className="iconGlyph pencil">✎</span></button>
+                        {c.status === "PUBLISHED" ? (
+                          <button className="actionBtn iconOnly publish" title="Вже опубліковано" aria-label="Вже опубліковано" disabled>✓</button>
+                        ) : (
+                          <button className="actionBtn iconOnly publish" title="Публікувати" aria-label="Публікувати" onClick={async () => { if (!token) return; await api.publishSponsoredChallenge(token, c.id); setToast({ type: "success", message: "Челендж опубліковано" }); await load(); }}>↑</button>
+                        )}
+                        <button className="actionBtn iconOnly danger" title="Видалити" aria-label="Видалити" onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити челендж ${c.title}?`, action: async () => { if (!token) return; await api.deleteSponsoredChallenge(token, c.id); setToast({ type: "success", message: "Челендж видалено" }); await load(); } })}><span className="iconGlyph delete">⌫</span></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -529,13 +558,18 @@ export function AdminPage() {
         }}>
           <div><label>Назва рекламного відео</label><input value={adTitle} onChange={(e) => setAdTitle(e.target.value)} /></div>
           <div><label>Файл відео</label><input type="file" accept="video/*" onChange={(e) => setAdFile(e.target.files?.[0] ?? null)} /></div>
-          <div><label>&nbsp;</label><button type="submit">Завантажити</button></div>
+          <div className="formSubmit"><button type="submit">Завантажити</button></div>
         </form>
       )}
 
       {tab === "videos" && (
         <>
-          <div className="row">
+          <div className="filtersRow">
+            <input
+              placeholder="Пошук за ID, описом або URL"
+              value={videoSearch}
+              onChange={(e) => setVideoSearch(e.target.value)}
+            />
             <select value={videoStatusFilter} onChange={(e) => setVideoStatusFilter(e.target.value)}><option value="ALL">Всі статуси</option><option value="PUBLISHED">Опубліковано</option><option value="PENDING_MANUAL">На модерації</option><option value="BLOCKED">Заблоковано</option></select>
             <select value={videoAdFilter} onChange={(e) => setVideoAdFilter(e.target.value)}><option value="ALL">Всі типи</option><option value="AD">Рекламні</option><option value="NON_AD">Звичайні</option></select>
           </div>
@@ -547,20 +581,22 @@ export function AdminPage() {
                   <tr key={v.id}>
                     <td>{v.id}</td>
                     <td>{v.description ?? "-"}</td>
-                    <td><a href={resolveMediaUrl(v.url)} target="_blank" rel="noreferrer">Відкрити</a></td>
+                    <td><button className="actionBtn iconOnly view" title="Перегляд" aria-label="Перегляд" onClick={() => setPreviewUrl(resolveMediaUrl(v.url))}>▶</button></td>
                     <td>{statusLabels[v.status] ?? v.status}</td>
                     <td>{v.is_ad ? "Рекламне" : "Звичайне"}</td>
                     <td>{v.views_count}</td>
                     <td>{v.likes_count}</td>
                     <td>{v.shares_count}</td>
-                    <td className="row">
-                      <button onClick={() => setEditVideo(v)}>Редагувати</button>
+                    <td>
+                      <div className="actionBar">
+                      <button className="actionBtn iconOnly edit" title="Редагувати" aria-label="Редагувати" onClick={() => setEditVideo(v)}><span className="iconGlyph pencil">✎</span></button>
                       {v.status !== "BLOCKED" ? (
-                        <button onClick={() => setConfirm({ title: "Підтвердження", message: `Заблокувати відео ${v.id}?`, action: async () => { if (!token) return; await api.updateVideo(token, v.id, { status: "BLOCKED" }); setToast({ type: "success", message: "Відео заблоковано" }); await load(); } })}>Заблокувати</button>
+                        <button className="actionBtn iconOnly warning" title="Заблокувати" aria-label="Заблокувати" onClick={() => setConfirm({ title: "Підтвердження", message: `Заблокувати відео ${v.id}?`, action: async () => { if (!token) return; await api.updateVideo(token, v.id, { status: "BLOCKED" }); setToast({ type: "success", message: "Відео заблоковано" }); await load(); } })}>×</button>
                       ) : (
-                        <button onClick={() => setConfirm({ title: "Підтвердження", message: `Розблокувати відео ${v.id}?`, action: async () => { if (!token) return; await api.updateVideo(token, v.id, { status: "PUBLISHED" }); setToast({ type: "success", message: "Відео розблоковано" }); await load(); } })}>Розблокувати</button>
+                        <button className="actionBtn iconOnly publish" title="Розблокувати" aria-label="Розблокувати" onClick={() => setConfirm({ title: "Підтвердження", message: `Розблокувати відео ${v.id}?`, action: async () => { if (!token) return; await api.updateVideo(token, v.id, { status: "PUBLISHED" }); setToast({ type: "success", message: "Відео розблоковано" }); await load(); } })}>↺</button>
                       )}
-                      <button onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити відео ${v.id}?`, action: async () => { if (!token) return; await api.deleteVideo(token, v.id); setToast({ type: "success", message: "Відео видалено" }); await load(); } })}>Видалити</button>
+                      <button className="actionBtn iconOnly danger" title="Видалити" aria-label="Видалити" onClick={() => setConfirm({ title: "Підтвердження", message: `Видалити відео ${v.id}?`, action: async () => { if (!token) return; await api.deleteVideo(token, v.id); setToast({ type: "success", message: "Відео видалено" }); await load(); } })}><span className="iconGlyph delete">⌫</span></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -587,7 +623,7 @@ export function AdminPage() {
         }}>
           <div><label>Поріг впевненості AI</label><input type="number" step="0.01" value={settings.ai_confidence_threshold} onChange={(e) => setSettings((s) => (s ? { ...s, ai_confidence_threshold: Number(e.target.value) } : s))} /></div>
           <div><label>Ліміт скарг для автоприховування</label><input type="number" value={settings.report_limit} onChange={(e) => setSettings((s) => (s ? { ...s, report_limit: Number(e.target.value) } : s))} /></div>
-          <div><label>&nbsp;</label><button type="submit">Зберегти</button></div>
+          <div className="formSubmit"><button type="submit">Зберегти</button></div>
         </form>
       )}
 
@@ -602,6 +638,31 @@ export function AdminPage() {
             <div className="row">
               <button onClick={async () => { if (!token) return; await api.updateWebUser(token, editUser.id, { full_name: editUser.full_name, role: editUser.role }); setToast({ type: "success", message: "Користувача оновлено" }); setEditUser(null); await load(); }}>Зберегти</button>
               <button className="button secondary" onClick={() => setEditUser(null)}>Скасувати</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editMobileUser ? (
+        <div className="modalBackdrop" onClick={() => setEditMobileUser(null)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h3>Редагувати користувача</h3>
+            <div className="grid2">
+              <div>
+                <label>Відображуване ім'я</label>
+                <input
+                  value={editMobileUser.full_name}
+                  onChange={(e) => setEditMobileUser({ ...editMobileUser, full_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label>@логін</label>
+                <input value={`@${editMobileUser.username}`} disabled />
+              </div>
+            </div>
+            <div className="row">
+              <button onClick={async () => { if (!token) return; await api.updateMobileUser(token, editMobileUser.id, { full_name: editMobileUser.full_name }); setToast({ type: "success", message: "Користувача оновлено" }); setEditMobileUser(null); await load(); }}>Зберегти</button>
+              <button className="button secondary" onClick={() => setEditMobileUser(null)}>Скасувати</button>
             </div>
           </div>
         </div>
@@ -650,6 +711,26 @@ export function AdminPage() {
             <div className="row">
               <button onClick={async () => { await confirm.action(); setConfirm(null); }}>Підтвердити</button>
               <button className="button secondary" onClick={() => setConfirm(null)}>Скасувати</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {previewUrl ? (
+        <div className="modalBackdrop" onClick={() => setPreviewUrl(null)}>
+          <div className="modalCard videoPreviewModal" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div>
+                <h3>Перегляд відео</h3>
+                <p className="muted">Відео відкривається у межах адмін-панелі, без переходу на окрему сторінку.</p>
+              </div>
+              <button className="iconClose" onClick={() => setPreviewUrl(null)} aria-label="Закрити">×</button>
+            </div>
+            <div className="videoFrame">
+              <video controls src={previewUrl} />
+            </div>
+            <div className="modalActions">
+              <a className="button secondary" href={previewUrl} target="_blank" rel="noreferrer">Відкрити окремо</a>
             </div>
           </div>
         </div>

@@ -38,7 +38,7 @@ export function AppShell() {
           </nav>
         </div>
         <div className="sidebarBottom">
-          <button onClick={logout}>Вийти</button>
+          <button className="logoutButton" onClick={logout}>Вийти</button>
         </div>
       </aside>
       <section className="content">

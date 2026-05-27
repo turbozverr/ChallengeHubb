@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import ModerationVideoORM, ReportTicketORM, VideoLikeORM, get_db, to_dict
+from app.infrastructure.db import (
+    ModerationVideoORM,
+    ReportTicketORM,
+    VideoCommentLikeORM,
+    VideoCommentORM,
+    VideoLikeORM,
+    get_db,
+    to_dict,
+)
 from app.schemas.auth import MeResponse
 from app.schemas.moderation import (
     ModerationDecisionRequest,
@@ -157,6 +165,15 @@ def delete_video(
     video = db.get(ModerationVideoORM, video_id)
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    comment_ids = [
+        row[0]
+        for row in db.execute(select(VideoCommentORM.id).where(VideoCommentORM.video_id == video_id)).all()
+    ]
+    if comment_ids:
+        db.query(VideoCommentLikeORM).filter(VideoCommentLikeORM.comment_id.in_(comment_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(VideoCommentORM).filter(VideoCommentORM.video_id == video_id).delete(synchronize_session=False)
     db.query(ReportTicketORM).filter(ReportTicketORM.video_id == video_id).delete()
     db.query(VideoLikeORM).filter(VideoLikeORM.video_id == video_id).delete()
     db.delete(video)

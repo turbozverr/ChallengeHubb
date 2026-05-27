@@ -58,6 +58,9 @@ class MobileChallengeResponse(BaseModel):
     status: str
     created_at: str
     creator_name: str | None = None
+    participation_status: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
 
 
 class CreateMobileChallengeRequest(BaseModel):
