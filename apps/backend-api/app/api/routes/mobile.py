@@ -1502,7 +1502,7 @@ def update_profile(
     if payload.avatar_url is not None:
         user.avatar_url = payload.avatar_url
     if payload.profile_background is not None:
-        allowed_backgrounds = {"background_1", "background_2", "background_3", "background_4"}
+        allowed_backgrounds = {"background_1", "background_2", "background_3", "background_4", "background_5", "background_6", "background_7"}
         if payload.profile_background and payload.profile_background not in allowed_backgrounds:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported profile background")
         if payload.profile_background and not user.is_premium:
