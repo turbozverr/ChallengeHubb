@@ -455,7 +455,7 @@ def _moderate_video_with_gemini(
         "generationConfig": {
             "temperature": 0.1,
             "topP": 0.9,
-            "maxOutputTokens": 150,
+            "maxOutputTokens": 300,
             "responseMimeType": "application/json",
         },
     }
