@@ -25,21 +25,21 @@ class MemoryStore:
         admin = WebUser(
             id="w_admin_1",
             full_name="Admin ChallengeHub",
-            email="admin@challengehub.local",
+            email="admin@challengehub.dev",
             role=WebRole.ADMIN,
             password="admin123",
         )
         moderator = WebUser(
             id="w_mod_1",
             full_name="Moderator ChallengeHub",
-            email="moderator@challengehub.local",
+            email="moderator@challengehub.dev",
             role=WebRole.MODERATOR,
             password="moderator123",
         )
         business = WebUser(
             id="w_biz_1",
             full_name="Brand Manager EVA",
-            email="business@challengehub.local",
+            email="business@challengehub.dev",
             role=WebRole.BUSINESS_CLIENT,
             password="business123",
             company_name="EVA",

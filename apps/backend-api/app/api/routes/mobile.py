@@ -4,6 +4,8 @@ from urllib.parse import quote, urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import json
+import re
+from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
@@ -406,6 +408,68 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
         return text or _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
     except Exception:
         return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return None
+
+
+def _moderate_video_with_gemini(
+    *,
+    challenge_title: str,
+    challenge_description: str,
+    video_description: str | None,
+    filename: str,
+    threshold: float,
+) -> tuple[str, str, str | None]:
+    if not settings.gemini_api_key:
+        return "APPROVED", "PUBLISHED", None
+
+    prompt = (
+        "You are a strict challenge-video moderation classifier.\n"
+        "Return ONLY JSON: {\"decision\":\"APPROVE|REJECT\",\"reject_confidence\":0..1,\"reason\":\"...\"}.\n"
+        f"challenge_title: {challenge_title}\n"
+        f"challenge_description: {challenge_description}\n"
+        f"video_description: {video_description or ''}\n"
+        f"filename: {filename}\n"
+    )
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "topP": 0.9, "maxOutputTokens": 120},
+    }
+    request = Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": settings.gemini_api_key},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        parts = payload["candidates"][0]["content"]["parts"]
+        text = "".join(part.get("text", "") for part in parts).strip()
+        data = _extract_json_object(text) or {}
+        decision = str(data.get("decision", "APPROVE")).upper()
+        try:
+            reject_confidence = float(data.get("reject_confidence", 0.0))
+        except Exception:
+            reject_confidence = 0.0
+        reject_confidence = max(0.0, min(1.0, reject_confidence))
+        if decision == "REJECT" and reject_confidence >= threshold:
+            return "REJECTED", "PENDING_MANUAL", str(data.get("reason") or "").strip() or None
+        return "APPROVED", "PUBLISHED", str(data.get("reason") or "").strip() or None
+    except Exception:
+        return "APPROVED", "PUBLISHED", None
 
 
 def _youtube_oauth_configured() -> bool:
@@ -905,6 +969,15 @@ async def upload_challenge_video(
     file_name = f"video_{uuid4().hex}{suffix}"
     target = uploads_dir / file_name
     target.write_bytes(await file.read())
+    system_settings = db.get(SystemSettingsORM, "settings_main")
+    threshold = float(system_settings.ai_confidence_threshold) if system_settings else 0.85
+    ai_status, moderation_status, ai_reason = _moderate_video_with_gemini(
+        challenge_title=challenge.title,
+        challenge_description=challenge.description,
+        video_description=description,
+        filename=file_name,
+        threshold=threshold,
+    )
     video = ModerationVideoORM(
         id=f"vid_{uuid4().hex[:10]}",
         challenge_id=challenge_id,
@@ -912,8 +985,9 @@ async def upload_challenge_video(
         author_user_id=current_user.id,
         url=str(target).replace("\\", "/"),
         description=description,
-        ai_status="APPROVED",
-        status="PUBLISHED",
+        ai_reason=ai_reason,
+        ai_status=ai_status,
+        status=moderation_status,
         reports_count=0,
         is_ad=False,
     )
@@ -926,21 +1000,37 @@ async def upload_challenge_video(
         )
         .first()
     )
-    if participation:
-        participation.status = "COMPLETED"
-        participation.completed_at = now_utc()
+    if video.status == "PUBLISHED":
+        if participation:
+            participation.status = "COMPLETED"
+            participation.completed_at = now_utc()
+        else:
+            participation = ChallengeParticipationORM(
+                id=f"cp_{uuid4().hex[:10]}",
+                user_id=current_user.id,
+                challenge_id=challenge_id,
+                challenge_type=challenge_type,
+                status="COMPLETED",
+                completed_at=now_utc(),
+            )
+            db.add(participation)
     else:
-        participation = ChallengeParticipationORM(
-            id=f"cp_{uuid4().hex[:10]}",
-            user_id=current_user.id,
-            challenge_id=challenge_id,
-            challenge_type=challenge_type,
-            status="COMPLETED",
-            completed_at=now_utc(),
-        )
-        db.add(participation)
+        if participation:
+            if participation.status != "COMPLETED":
+                participation.status = "ACTIVE"
+                participation.completed_at = None
+        else:
+            db.add(
+                ChallengeParticipationORM(
+                    id=f"cp_{uuid4().hex[:10]}",
+                    user_id=current_user.id,
+                    challenge_id=challenge_id,
+                    challenge_type=challenge_type,
+                    status="ACTIVE",
+                )
+            )
     user = db.get(MobileUserORM, current_user.id)
-    if user:
+    if user and video.status == "PUBLISHED":
         reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
         if user.is_premium:
             reward *= 2

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -192,6 +192,7 @@ class ModerationVideoORM(Base):
     author_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_status: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     reports_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -264,6 +265,7 @@ def init_db() -> None:
             "ALTER TABLE sponsored_challenges ADD COLUMN promo_single_code VARCHAR(255) NULL",
             "ALTER TABLE moderation_videos ADD COLUMN is_ad BOOLEAN DEFAULT FALSE",
             "ALTER TABLE moderation_videos ADD COLUMN description TEXT NULL",
+            "ALTER TABLE moderation_videos ADD COLUMN ai_reason TEXT NULL",
             "ALTER TABLE moderation_videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
             "ALTER TABLE moderation_videos ADD COLUMN views_count INT DEFAULT 0",
             "ALTER TABLE moderation_videos ADD COLUMN likes_count INT DEFAULT 0",
@@ -309,7 +311,6 @@ def init_db() -> None:
             "ALTER TABLE ad_videos ADD COLUMN file_path TEXT NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN challenge_id VARCHAR(64) NULL",
             "ALTER TABLE ad_videos MODIFY COLUMN video_url TEXT NULL",
-            "UPDATE mobile_users SET email = 'user@challengehub.dev' WHERE email = 'user@challengehub.local'",
         ]
         for statement in migrations:
             try:
@@ -327,7 +328,7 @@ def init_db() -> None:
                         email="user@challengehub.dev",
                         password="user123",
                         auth_provider="password",
-                        bio="Demo ChallengeHub participant",
+                        bio="ChallengeHub user bio",
                         xp=420,
                         is_premium=False,
                         status="ACTIVE",
@@ -337,16 +338,15 @@ def init_db() -> None:
                 db.add(UserBadgeORM(id="badge_1", user_id="mobile_user_1", badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
                 db.commit()
             return
-        admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.local", role=WebRole.ADMIN.value, password="admin123")
-        moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.local", role=WebRole.MODERATOR.value, password="moderator123")
-        business = WebUserORM(id="w_biz_1", full_name="Brand Manager EVA", email="business@challengehub.local", role=WebRole.BUSINESS_CLIENT.value, password="business123", company_name="EVA")
+        admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.dev", role=WebRole.ADMIN.value, password="admin123")
+        moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.dev", role=WebRole.MODERATOR.value, password="moderator123")
+        business = WebUserORM(id="w_biz_1", full_name="Brand Manager EVA", email="business@challengehub.dev", role=WebRole.BUSINESS_CLIENT.value, password="business123", company_name="EVA")
         db.add_all([admin, moderator, business])
         db.flush()
         challenge = SponsoredChallengeORM(
-            id="sp_1",
             title="EVA Spring Challenge",
-            description="Ð—Ð½Ñ–Ð¼Ð¸ Ð²Ñ–Ð´ÐµÐ¾ Ð· Ð¿Ð¾ÐºÑƒÐ¿ÐºÐ¾ÑŽ Ð½Ð°Ð±Ð¾Ñ€Ñƒ Ð³Ñ–Ð³Ñ–Ñ”Ð½Ð¸ EVA",
-            reward_text="ÐŸÑ€Ð¾Ð¼Ð¾ÐºÐ¾Ð´ Ð½Ð° Ð¿Ð°Ñ€Ñ„ÑƒÐ¼",
+            description="Зніми відео з покупкою набору гігієни EVA",
+            reward_text="Промокод на парфум",
             difficulty="normal",
             duration_days=7,
             xp_reward=200,
@@ -362,11 +362,11 @@ def init_db() -> None:
         db.flush()
         db.add_all(
             [
-                ModerationVideoORM(id="vid_1", challenge_id=challenge.id, author_user_id="mobile_user_1", url="https://cdn.challengehub.local/video/1", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 1", ai_status="REJECTED", status="PENDING_MANUAL", reports_count=1, views_count=124, likes_count=17, shares_count=5),
-                ModerationVideoORM(id="vid_2", challenge_id=challenge.id, author_user_id="mobile_user_2", url="https://cdn.challengehub.local/video/2", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 2", ai_status="APPROVED", status="PUBLISHED", reports_count=4, is_ad=True, views_count=509, likes_count=66, shares_count=14),
+                ModerationVideoORM(id="vid_1", challenge_id=challenge.id, author_user_id="mobile_user_1", url="https://cdn.challengehub.local/video/1", description="Відео-звіт 1", ai_status="REJECTED", status="PENDING_MANUAL", reports_count=1, views_count=124, likes_count=17, shares_count=5),
+                ModerationVideoORM(id="vid_2", challenge_id=challenge.id, author_user_id="mobile_user_2", url="https://cdn.challengehub.local/video/2", description="Відео-звіт 2", ai_status="APPROVED", status="PUBLISHED", reports_count=4, is_ad=True, views_count=509, likes_count=66, shares_count=14),
             ]
         )
-        db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="ÐŸÑ–Ð´Ð¾Ð·Ñ€Ð° Ð½Ð° Ð½ÐµÐ´Ð¾Ñ€ÐµÑ‡Ð½Ð¸Ð¹ ÐºÐ¾Ð½Ñ‚ÐµÐ½Ñ‚", status="OPEN"))
+        db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="Підозра на недоречний контент", status="OPEN"))
         db.add(AdVideoORM(id="ad_1", challenge_id=None, title="EVA Promo Intro", video_url="https://cdn.challengehub.local/ad/1"))
         db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026", is_sent=False))
         db.add(SystemSettingsORM(id="settings_main", ai_confidence_threshold=0.85, report_limit=3))
@@ -377,7 +377,7 @@ def init_db() -> None:
             email="user@challengehub.dev",
             password="user123",
             auth_provider="password",
-            bio="ÃÅ¸ÃÂµÃ‘â‚¬Ã‘Ë†ÃÂ¸ÃÂ¹ Ã‘Æ’Ã‘â€¡ÃÂ°Ã‘ÂÃÂ½ÃÂ¸ÃÂº ChallengeHub",
+            bio="ChallengeHub user bio",
             xp=420,
             is_premium=False,
             status="ACTIVE",

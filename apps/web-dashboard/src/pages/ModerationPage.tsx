@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { resolveMediaUrl } from "../api/media";
 import type { ModerationVideoResponse, ReportResponse } from "../api/types";
@@ -47,6 +47,7 @@ export function ModerationPage() {
                 <th>ID</th>
                 <th>Контент</th>
                 <th>Рішення AI</th>
+                <th>Пояснення AI</th>
                 <th>Скарги</th>
                 <th>Рішення</th>
               </tr>
@@ -61,6 +62,7 @@ export function ModerationPage() {
                     </button>
                   </td>
                   <td>{aiLabels[video.ai_status] ?? video.ai_status}</td>
+                  <td title={video.ai_reason ?? ""}>{video.ai_reason ?? "-"}</td>
                   <td>{video.reports_count}</td>
                   <td>
                     <div className="actionBar">

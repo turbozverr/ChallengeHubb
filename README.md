@@ -62,10 +62,10 @@ For local backend on emulator, run Gradle with:
 gradle assembleDebug -PCH_API_BASE_URL=http://10.0.2.2:8000/api/v1/
 ```
 
-## Demo Accounts
-- `admin@challengehub.local` / `admin123`
-- `moderator@challengehub.local` / `moderator123`
-- `business@challengehub.local` / `business123`
+## Accounts
+- `admin@challengehub.dev` / `admin123`
+- `moderator@challengehub.dev` / `moderator123`
+- `business@challengehub.dev` / `business123`
 - `user@challengehub.dev` / `user123`
 
 ## Current Status

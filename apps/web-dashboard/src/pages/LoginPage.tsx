@@ -5,7 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@challengehub.local");
+  const [email, setEmail] = useState("admin@challengehub.dev");
   const [password, setPassword] = useState("admin123");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -16,7 +16,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       const user = await login(email, password);
-      if (user.role === "ADMIN") navigate("/app");
+      if (user.role === "ADMIN") navigate("/app/admin");
       else if (user.role === "MODERATOR") navigate("/app/moderation");
       else navigate("/app/business");
     } catch (e) {
@@ -29,7 +29,7 @@ export function LoginPage() {
   return (
     <div className="card">
       <h1>Вхід у ChallengeHub WebSystem</h1>
-      <p className="muted">Демо: admin/moderator/business + пароль *123</p>
+      <p className="muted">admin/moderator/business + 123</p>
       <form className="column" onSubmit={handleSubmit}>
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
         <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" type="password" />
