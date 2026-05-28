@@ -165,6 +165,7 @@ export interface AdVideoResponse {
   status: string;
   created_by_admin_id: string | null;
   views_count: number;
+  likes_count: number;
   shares_count: number;
   created_at: string;
 }

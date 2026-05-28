@@ -38,6 +38,22 @@ def unsent_promo_codes(current_user: MeResponse = Depends(get_current_web_user),
     return [PromoCodeResponse(**to_dict(row)) for row in rows]
 
 
+@router.get("/{challenge_id}/promo-codes", response_model=list[PromoCodeResponse])
+def get_challenge_promo_codes(
+    challenge_id: str,
+    current_user: MeResponse = Depends(get_current_web_user),
+    db: Session = Depends(get_db),
+) -> list[PromoCodeResponse]:
+    require_roles({WebRole.ADMIN, WebRole.BUSINESS_CLIENT}, current_user)
+    challenge = db.get(SponsoredChallengeORM, challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found")
+    if current_user.role == WebRole.BUSINESS_CLIENT and challenge.client_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    rows = db.query(PromoCodeORM).filter(PromoCodeORM.challenge_id == challenge_id).all()
+    return [PromoCodeResponse(**to_dict(row)) for row in rows]
+
+
 @router.get("/ad-videos", response_model=list[AdVideoResponse])
 def list_ad_videos(current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)) -> list[AdVideoResponse]:
     require_roles({WebRole.ADMIN, WebRole.BUSINESS_CLIENT, WebRole.MODERATOR}, current_user)

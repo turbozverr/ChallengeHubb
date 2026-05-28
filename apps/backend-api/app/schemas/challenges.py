@@ -60,5 +60,6 @@ class AdVideoResponse(BaseModel):
     status: str
     created_by_admin_id: str | None = None
     views_count: int = 0
+    likes_count: int = 0
     shares_count: int = 0
     created_at: str

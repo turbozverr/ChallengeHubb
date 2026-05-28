@@ -550,7 +550,7 @@ export function AdminPage() {
                     <td>{c.id}</td><td>{c.title}</td><td>{difficultyLabels[c.difficulty] ?? c.difficulty}</td><td>{c.duration_days}</td><td>{c.xp_reward}</td><td>{statusLabels[c.status] ?? c.status}</td>
                     <td>
                       <div className="actionBar">
-                        <button className="actionBtn iconOnly edit" title="Редагувати" aria-label="Редагувати" onClick={() => { setEditChallenge(c); setEditChallengePromoList(""); }}><span className="iconGlyph pencil">✎</span></button>
+                        <button className="actionBtn iconOnly edit" title="Редагувати" aria-label="Редагувати" onClick={async () => { setEditChallenge(c); if (c.promo_mode === "LIST" && token) { const rows = await api.challengePromoCodes(token, c.id); setEditChallengePromoList(rows.map((r) => r.code).join("\n")); } else { setEditChallengePromoList(""); } }}><span className="iconGlyph pencil">✎</span></button>
                         {c.status === "PUBLISHED" ? (
                           <button className="actionBtn iconOnly publish" title="Вже опубліковано" aria-label="Вже опубліковано" disabled>✓</button>
                         ) : (
@@ -628,7 +628,7 @@ export function AdminPage() {
           </div>
           <div className="tableWrap">
             <table>
-              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Репости</th><th>Дії</th></tr></thead>
+              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Лайки</th><th>Репости</th><th>Дії</th></tr></thead>
               <tbody>
                 {adVideoRows.map((v) => (
                   <tr key={v.id}>
@@ -637,6 +637,7 @@ export function AdminPage() {
                     <td><button className="actionBtn iconOnly view" title="Перегляд" aria-label="Перегляд" onClick={() => setPreviewUrl(resolveMediaUrl(v.file_path ?? v.url ?? ""))}>▶</button></td>
                     <td>{statusLabels[v.status] ?? v.status}</td>
                     <td>{v.views_count}</td>
+                    <td>{v.likes_count}</td>
                     <td>{v.shares_count}</td>
                     <td>
                       <div className="actionBar">
@@ -669,7 +670,7 @@ export function AdminPage() {
           </div>
           <div className="tableWrap">
             <table>
-              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Репости</th><th>Дії</th></tr></thead>
+              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Лайки</th><th>Репости</th><th>Дії</th></tr></thead>
               <tbody>
                 {videoRows.map((v) => (
                   <tr key={v.id}>
@@ -678,6 +679,7 @@ export function AdminPage() {
                     <td><button className="actionBtn iconOnly view" title="Перегляд" aria-label="Перегляд" onClick={() => setPreviewUrl(resolveMediaUrl(v.url))}>▶</button></td>
                     <td>{statusLabels[v.status] ?? v.status}</td>
                     <td>{v.views_count}</td>
+                    <td>{v.likes_count}</td>
                     <td>{v.shares_count}</td>
                     <td>
                       <div className="actionBar">

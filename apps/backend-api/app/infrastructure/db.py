@@ -235,6 +235,7 @@ class AdVideoORM(Base):
     status: Mapped[str] = mapped_column(String(32), default="PUBLISHED")
     created_by_admin_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     views_count: Mapped[int] = mapped_column(Integer, default=0)
+    likes_count: Mapped[int] = mapped_column(Integer, default=0)
     shares_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -323,6 +324,7 @@ def init_db() -> None:
             "ALTER TABLE ad_videos ADD COLUMN status VARCHAR(32) DEFAULT 'PUBLISHED'",
             "ALTER TABLE ad_videos ADD COLUMN created_by_admin_id VARCHAR(64) NULL",
             "ALTER TABLE ad_videos ADD COLUMN views_count INT DEFAULT 0",
+            "ALTER TABLE ad_videos ADD COLUMN likes_count INT DEFAULT 0",
             "ALTER TABLE ad_videos ADD COLUMN shares_count INT DEFAULT 0",
         ]
         for statement in migrations:

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { BusinessDashboardAnalyticsResponse, PromoCodeResponse } from "../api/types";
+import type { BusinessDashboardAnalyticsResponse, PromoCodeResponse, SponsoredChallengeResponse } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 
 type ChartSeries = { name: string; color: string; values: number[] };
@@ -57,21 +57,29 @@ export function BusinessPage() {
   const { token } = useAuth();
   const [dashboard, setDashboard] = useState<BusinessDashboardAnalyticsResponse | null>(null);
   const [promos, setPromos] = useState<PromoCodeResponse[]>([]);
+  const [challenges, setChallenges] = useState<SponsoredChallengeResponse[]>([]);
+  const [promoChallengeFilter, setPromoChallengeFilter] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       if (!token) return;
       try {
-        const [d, p] = await Promise.all([api.businessDashboardAnalytics(token), api.unsentPromoCodes(token)]);
+        const [d, p, ch] = await Promise.all([api.businessDashboardAnalytics(token), api.unsentPromoCodes(token), api.listSponsoredChallenges(token)]);
         setDashboard(d);
         setPromos(p);
+        setChallenges(ch);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Помилка завантаження");
       }
     };
     void load();
   }, [token]);
+
+  const promosFiltered = useMemo(
+    () => promos.filter((p) => promoChallengeFilter === "ALL" || p.challenge_id === promoChallengeFilter),
+    [promos, promoChallengeFilter]
+  );
 
   const totals = useMemo(() => {
     const views = (dashboard?.views_by_day ?? []).reduce((a, x) => a + x.value, 0);
@@ -144,10 +152,18 @@ export function BusinessPage() {
       </section>
 
       <h2>Невідправлені промокоди</h2>
+      <div className="filtersRow">
+        <select value={promoChallengeFilter} onChange={(e) => setPromoChallengeFilter(e.target.value)}>
+          <option value="ALL">Всі челенджі</option>
+          {challenges.map((c) => (
+            <option key={c.id} value={c.id}>{c.title}</option>
+          ))}
+        </select>
+      </div>
       <div className="tableWrap">
         <table>
           <thead><tr><th>ID</th><th>Челендж</th><th>Код</th></tr></thead>
-          <tbody>{promos.map((p) => <tr key={p.id}><td>{p.id}</td><td>{p.challenge_id}</td><td>{p.code}</td></tr>)}</tbody>
+          <tbody>{promosFiltered.map((p) => <tr key={p.id}><td>{p.id}</td><td>{challenges.find((c) => c.id === p.challenge_id)?.title ?? p.challenge_id}</td><td>{p.code}</td></tr>)}</tbody>
         </table>
       </div>
     </div>

@@ -495,8 +495,6 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
 
 def _moderate_video_with_gemini(
     *,
-    challenge_title: str,
-    challenge_description: str,
     video_description: str | None,
     threshold: float,
 ) -> tuple[str, str, str | None, float | None]:
@@ -507,10 +505,8 @@ def _moderate_video_with_gemini(
         "You are a strict challenge-video moderation classifier.\n"
         "Analyze TEXT ONLY (video description and metadata).\n"
         "Return ONLY JSON: {\"decision\":\"APPROVE|REJECT\",\"reject_confidence\":0..1,\"reason\":\"...\"}.\n"
-        "Reject if description indicates profanity (e.g. fuck, shit), hate speech, harassment, explicit violence, illegal activity promotion, or obvious advertising/spam.\n"
+        "Reject if description indicates profanity, hate speech, harassment, explicit violence, illegal activity promotion, or obvious advertising/spam.\n"
         "If uncertain, prefer REJECT with moderate confidence.\n"
-        f"challenge_title: {challenge_title}\n"
-        f"challenge_description: {challenge_description}\n"
         f"video_description: {video_description or ''}\n"
     )
     body = {
@@ -1076,8 +1072,6 @@ async def upload_challenge_video(
     system_settings = db.get(SystemSettingsORM, "settings_main")
     threshold = float(system_settings.ai_confidence_threshold) if system_settings else 0.85
     ai_status, moderation_status, ai_reason, ai_confidence = _moderate_video_with_gemini(
-        challenge_title=challenge.title,
-        challenge_description=challenge.description,
         video_description=description,
         threshold=threshold,
     )

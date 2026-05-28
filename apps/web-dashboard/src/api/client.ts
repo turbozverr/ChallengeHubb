@@ -119,6 +119,8 @@ export const api = {
     request<{ ok: boolean }>(`/sponsored-challenges/${challengeId}`, { method: "DELETE" }, token),
   unsentPromoCodes: (token: string) =>
     request<PromoCodeResponse[]>("/sponsored-challenges/promo/unsent", undefined, token),
+  challengePromoCodes: (token: string, challengeId: string) =>
+    request<PromoCodeResponse[]>(`/sponsored-challenges/${challengeId}/promo-codes`, undefined, token),
   uploadAdVideo: async (token: string, payload: { description: string; file: File }) => {
     const form = new FormData();
     form.append("description", payload.description);
