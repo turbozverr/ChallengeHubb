@@ -34,7 +34,7 @@ def unsent_promo_codes(current_user: MeResponse = Depends(get_current_web_user),
     query = db.query(PromoCodeORM).join(SponsoredChallengeORM, SponsoredChallengeORM.id == PromoCodeORM.challenge_id)
     if current_user.role == WebRole.BUSINESS_CLIENT:
         query = query.filter(SponsoredChallengeORM.client_id == current_user.id)
-    rows = query.filter(PromoCodeORM.is_sent == False).all()  # noqa: E712
+    rows = query.all()
     return [PromoCodeResponse(**to_dict(row)) for row in rows]
 
 
@@ -159,7 +159,7 @@ def create_sponsored_challenge(payload: CreateSponsoredChallengeRequest, current
     db.refresh(challenge)
     if payload.promo_mode == "LIST" and payload.promo_codes:
         for code in payload.promo_codes:
-            db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id=challenge.id, code=code, is_sent=False))
+            db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id=challenge.id, code=code))
         db.commit()
     return SponsoredChallengeResponse(**to_dict(challenge))
 
@@ -200,7 +200,7 @@ def update_sponsored_challenge(challenge_id: str, payload: UpdateSponsoredChalle
                 code_norm = code.strip()
                 if not code_norm:
                     continue
-                db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id=challenge.id, code=code_norm, is_sent=False))
+                db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id=challenge.id, code=code_norm))
     db.commit()
     db.refresh(challenge)
     return SponsoredChallengeResponse(**to_dict(challenge))

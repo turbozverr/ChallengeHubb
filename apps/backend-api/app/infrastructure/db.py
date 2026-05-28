@@ -183,7 +183,6 @@ class PromoCodeORM(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     challenge_id: Mapped[str] = mapped_column(ForeignKey("sponsored_challenges.id"), nullable=False)
     code: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class ModerationVideoORM(Base):
@@ -292,7 +291,8 @@ def init_db() -> None:
             "ALTER TABLE video_comment_likes DROP FOREIGN KEY fk_video_comment_likes_comment",
             "ALTER TABLE video_comment_likes ADD CONSTRAINT fk_video_comment_likes_comment FOREIGN KEY (comment_id) REFERENCES video_comments(id) ON DELETE CASCADE",
             "ALTER TABLE videos DROP FOREIGN KEY moderation_videos_ibfk_1",
-            "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL, is_sent BOOLEAN DEFAULT FALSE)",
+            "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL)",
+            "ALTER TABLE promo_codes DROP COLUMN is_sent",
             "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, file_path TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_by_admin_id VARCHAR(64) NULL, views_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
             "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
@@ -383,7 +383,7 @@ def init_db() -> None:
         )
         db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="ÐŸÑ–Ð´Ð¾Ð·Ñ€Ð° Ð½Ð° Ð½ÐµÐ´Ð¾Ñ€ÐµÑ‡Ð½Ð¸Ð¹ ÐºÐ¾Ð½Ñ‚ÐµÐ½Ñ‚", status="OPEN"))
         db.add(AdVideoORM(id="ad_1", description="EVA Promo Intro", url="https://cdn.challengehub.local/ad/1"))
-        db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026", is_sent=False))
+        db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026"))
         db.add(SystemSettingsORM(id="settings_main", ai_confidence_threshold=0.85, report_limit=3))
         mobile_user = MobileUserORM(
             id="mobile_user_1",

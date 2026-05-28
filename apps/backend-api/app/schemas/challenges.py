@@ -49,7 +49,6 @@ class PromoCodeResponse(BaseModel):
     id: str
     challenge_id: str
     code: str
-    is_sent: bool
 
 
 class AdVideoResponse(BaseModel):

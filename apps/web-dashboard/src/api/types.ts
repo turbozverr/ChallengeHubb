@@ -154,7 +154,6 @@ export interface PromoCodeResponse {
   id: string;
   challenge_id: string;
   code: string;
-  is_sent: boolean;
 }
 
 export interface AdVideoResponse {
