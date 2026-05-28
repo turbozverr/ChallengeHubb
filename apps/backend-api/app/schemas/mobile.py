@@ -75,6 +75,7 @@ class MobileChallengeResponse(BaseModel):
     participation_status: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
+    progress_videos: int = 0
 
 
 class CreateMobileChallengeRequest(BaseModel):

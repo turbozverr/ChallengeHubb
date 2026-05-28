@@ -23,6 +23,7 @@ from app.infrastructure.db import (
     MobileUserORM,
     ModerationVideoORM,
     NotificationORM,
+    PromoCodeORM,
     ReportTicketORM,
     SponsoredChallengeORM,
     SystemSettingsORM,
@@ -165,6 +166,19 @@ def _challenge_response(
         data["participation_status"] = participation.status
         data["started_at"] = participation.started_at.isoformat() if participation.started_at else None
         data["completed_at"] = participation.completed_at.isoformat() if participation.completed_at else None
+        data["progress_videos"] = int(
+            db.scalar(
+                select(func.count(ModerationVideoORM.id)).where(
+                    ModerationVideoORM.author_user_id == participation.user_id,
+                    ModerationVideoORM.challenge_id == row.id,
+                    ModerationVideoORM.challenge_type == challenge_type,
+                    ModerationVideoORM.status == "PUBLISHED",
+                )
+            )
+            or 0
+        )
+    else:
+        data["progress_videos"] = 0
     return MobileChallengeResponse(**data)
 
 
@@ -1114,16 +1128,20 @@ async def upload_challenge_video(
     )
     reached_completion = published_videos_count >= required_videos
 
+    was_completed_before = participation.status == "COMPLETED" if participation else False
+    just_completed = False
     if participation:
         if reached_completion:
             if participation.status != "COMPLETED":
                 participation.status = "COMPLETED"
                 participation.completed_at = now_utc()
+                just_completed = True
         else:
             if participation.status != "COMPLETED":
                 participation.status = "ACTIVE"
                 participation.completed_at = None
     else:
+        just_completed = reached_completion
         db.add(
             ChallengeParticipationORM(
                 id=f"cp_{uuid4().hex[:10]}",
@@ -1141,6 +1159,38 @@ async def upload_challenge_video(
             reward *= 2
         user.xp += reward
         _refresh_user_badges(db, user)
+    if challenge_type == "SPONSORED" and just_completed and not was_completed_before:
+        promo_text: str | None = None
+        if challenge.promo_mode == "SINGLE" and challenge.promo_single_code:
+            promo_text = challenge.promo_single_code.strip()
+        elif challenge.promo_mode == "LIST":
+            promo_row = (
+                db.query(PromoCodeORM)
+                .filter(PromoCodeORM.challenge_id == challenge_id)
+                .order_by(PromoCodeORM.created_at.asc())
+                .first()
+            )
+            if promo_row and promo_row.code:
+                promo_text = promo_row.code.strip()
+                db.delete(promo_row)
+        if promo_text:
+            db.add(
+                NotificationORM(
+                    id=f"nt_{uuid4().hex[:10]}",
+                    user_id=current_user.id,
+                    title="Челендж завершено",
+                    body=f"Вітаємо! Ваш промокод: {promo_text}",
+                )
+            )
+        else:
+            db.add(
+                NotificationORM(
+                    id=f"nt_{uuid4().hex[:10]}",
+                    user_id=current_user.id,
+                    title="Челендж завершено",
+                    body="Вітаємо! Ви успішно завершили спонсорський челендж.",
+                )
+            )
     db.commit()
     db.refresh(video)
     return _video_response(video, db, current_user.id)
