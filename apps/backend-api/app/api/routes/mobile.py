@@ -1097,35 +1097,43 @@ async def upload_challenge_video(
         )
         .first()
     )
-    if video.status == "PUBLISHED":
-        if participation:
-            participation.status = "COMPLETED"
-            participation.completed_at = now_utc()
+    db.add(video)
+    db.flush()
+
+    required_videos = max(1, int(challenge.duration_days))
+    published_videos_count = int(
+        db.scalar(
+            select(func.count(ModerationVideoORM.id)).where(
+                ModerationVideoORM.author_user_id == current_user.id,
+                ModerationVideoORM.challenge_id == challenge_id,
+                ModerationVideoORM.challenge_type == challenge_type,
+                ModerationVideoORM.status == "PUBLISHED",
+            )
+        )
+        or 0
+    )
+    reached_completion = published_videos_count >= required_videos
+
+    if participation:
+        if reached_completion:
+            if participation.status != "COMPLETED":
+                participation.status = "COMPLETED"
+                participation.completed_at = now_utc()
         else:
-            participation = ChallengeParticipationORM(
+            if participation.status != "COMPLETED":
+                participation.status = "ACTIVE"
+                participation.completed_at = None
+    else:
+        db.add(
+            ChallengeParticipationORM(
                 id=f"cp_{uuid4().hex[:10]}",
                 user_id=current_user.id,
                 challenge_id=challenge_id,
                 challenge_type=challenge_type,
-                status="COMPLETED",
-                completed_at=now_utc(),
+                status="COMPLETED" if reached_completion else "ACTIVE",
+                completed_at=now_utc() if reached_completion else None,
             )
-            db.add(participation)
-    else:
-        if participation:
-            if participation.status != "COMPLETED":
-                participation.status = "ACTIVE"
-                participation.completed_at = None
-        else:
-            db.add(
-                ChallengeParticipationORM(
-                    id=f"cp_{uuid4().hex[:10]}",
-                    user_id=current_user.id,
-                    challenge_id=challenge_id,
-                    challenge_type=challenge_type,
-                    status="ACTIVE",
-                )
-            )
+        )
     user = db.get(MobileUserORM, current_user.id)
     if user and video.status == "PUBLISHED":
         reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
@@ -1133,7 +1141,6 @@ async def upload_challenge_video(
             reward *= 2
         user.xp += reward
         _refresh_user_badges(db, user)
-    db.add(video)
     db.commit()
     db.refresh(video)
     return _video_response(video, db, current_user.id)
