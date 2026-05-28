@@ -6,7 +6,7 @@ export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("admin@challengehub.dev");
-  const [password, setPassword] = useState("admin123");
+  const [password, setPassword] = useState("12345");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +29,7 @@ export function LoginPage() {
   return (
     <div className="card">
       <h1>Вхід у ChallengeHub WebSystem</h1>
-      <p className="muted">admin/moderator/business + 123</p>
+      <p className="muted">admin/moderator/business@challengehub.dev | 12345</p>
       <form className="column" onSubmit={handleSubmit}>
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
         <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" type="password" />

@@ -340,9 +340,9 @@ def init_db() -> None:
                 db.add(UserBadgeORM(id="badge_1", user_id="mobile_user_1", badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
                 db.commit()
             return
-        admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.dev", role=WebRole.ADMIN.value, password="admin123")
-        moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.dev", role=WebRole.MODERATOR.value, password="moderator123")
-        business = WebUserORM(id="w_biz_1", full_name="Brand Manager EVA", email="business@challengehub.dev", role=WebRole.BUSINESS_CLIENT.value, password="business123", company_name="EVA")
+        admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.dev", role=WebRole.ADMIN.value, password="12345")
+        moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.dev", role=WebRole.MODERATOR.value, password="12345")
+        business = WebUserORM(id="w_biz_1", full_name="Brand Manager EVA", email="business@challengehub.dev", role=WebRole.BUSINESS_CLIENT.value, password="12345", company_name="EVA")
         db.add_all([admin, moderator, business])
         db.flush()
         challenge = SponsoredChallengeORM(
