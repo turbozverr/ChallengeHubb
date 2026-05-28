@@ -1,12 +1,12 @@
 ﻿from datetime import UTC, date, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import MobileUserORM, ModerationVideoORM, SponsoredChallengeORM, UserChallengeORM, VideoCommentORM, get_db
+from app.infrastructure.db import AdVideoORM, MobileUserORM, ModerationVideoORM, SponsoredChallengeORM, UserChallengeORM, VideoCommentORM, VideoLikeORM, get_db
 from app.schemas.analytics import (
     AdminDashboardAnalyticsResponse,
     BusinessDashboardAnalyticsResponse,
@@ -66,6 +66,7 @@ def get_admin_dashboard_analytics(
     day_keys = [d.isoformat() for d in days]
 
     videos = db.execute(select(ModerationVideoORM)).scalars().all()
+    ad_videos = db.execute(select(AdVideoORM)).scalars().all()
     challenges = db.execute(select(SponsoredChallengeORM)).scalars().all()
     user_challenges = db.execute(select(UserChallengeORM)).scalars().all()
     mobile_users = db.execute(select(MobileUserORM)).scalars().all()
@@ -138,10 +139,11 @@ def get_admin_dashboard_analytics(
         key = v.created_at.date().isoformat()
         if key not in growth_map:
             continue
-        if v.is_ad:
+        growth_map[key].regular_videos += 1
+    for v in ad_videos:
+        key = v.created_at.date().isoformat()
+        if key in growth_map:
             growth_map[key].ad_videos += 1
-        else:
-            growth_map[key].regular_videos += 1
     content_growth = [growth_map[key] for key in day_keys]
 
     ai_quality = []
@@ -188,6 +190,12 @@ def get_business_dashboard_analytics(
     videos = [v for v in videos if v.challenge_id in challenge_ids and v.challenge_type == "SPONSORED"]
     video_ids = {v.id for v in videos}
     comments = db.execute(select(VideoCommentORM)).scalars().all()
+    likes_by_video = {
+        vid: int(cnt)
+        for vid, cnt in db.execute(
+            select(VideoLikeORM.video_id, func.count(VideoLikeORM.id)).group_by(VideoLikeORM.video_id)
+        ).all()
+    }
 
     views_map = {k: 0 for k in day_keys}
     submissions_map = {k: 0 for k in day_keys}
@@ -202,7 +210,7 @@ def get_business_dashboard_analytics(
             continue
         views_map[k] += int(v.views_count)
         submissions_map[k] += 1
-        likes_map[k] += int(v.likes_count)
+        likes_map[k] += likes_by_video.get(v.id, 0)
         shares_map[k] += int(v.shares_count)
         if v.status == "PUBLISHED":
             completed_map[k] += 1

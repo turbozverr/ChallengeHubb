@@ -32,6 +32,15 @@ class UpdateMobileUserRequest(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
 
 
+class UpdateUserChallengeRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    difficulty: str | None = None
+    duration_days: int | None = None
+    xp_reward: int | None = None
+    status: str | None = None
+
+
 @router.get("/panel")
 def admin_panel(current_user: MeResponse = Depends(get_current_web_user)) -> dict[str, str]:
     require_roles({WebRole.ADMIN}, current_user)
@@ -144,5 +153,63 @@ def delete_mobile_user(
     db.query(NotificationORM).filter(NotificationORM.user_id == user_id).delete(synchronize_session=False)
     db.query(MobileTokenORM).filter(MobileTokenORM.user_id == user_id).delete(synchronize_session=False)
     db.delete(user)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/user-challenges")
+def list_user_challenges(
+    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
+) -> list[dict]:
+    require_roles({WebRole.ADMIN}, current_user)
+    rows = db.execute(select(UserChallengeORM).order_by(UserChallengeORM.created_at.desc())).scalars().all()
+    return [to_dict(row) for row in rows]
+
+
+@router.patch("/user-challenges/{challenge_id}")
+def update_user_challenge(
+    challenge_id: str,
+    payload: UpdateUserChallengeRequest,
+    current_user: MeResponse = Depends(get_current_web_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    require_roles({WebRole.ADMIN}, current_user)
+    row = db.get(UserChallengeORM, challenge_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found")
+    for field in ["title", "description", "difficulty", "duration_days", "status"]:
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(row, field, value)
+    if payload.xp_reward is not None:
+        row.xp_reward = max(1, min(payload.xp_reward, 500))
+    db.commit()
+    db.refresh(row)
+    return to_dict(row)
+
+
+@router.delete("/user-challenges/{challenge_id}")
+def delete_user_challenge(
+    challenge_id: str,
+    current_user: MeResponse = Depends(get_current_web_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    require_roles({WebRole.ADMIN}, current_user)
+    row = db.get(UserChallengeORM, challenge_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found")
+    has_videos = db.execute(
+        select(func.count(ModerationVideoORM.id)).where(
+            ModerationVideoORM.challenge_type == "USER",
+            ModerationVideoORM.challenge_id == challenge_id,
+        )
+    ).scalar_one()
+    if has_videos:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete challenge with existing videos")
+    db.query(ChallengeParticipationORM).filter(
+        ChallengeParticipationORM.challenge_type == "USER",
+        ChallengeParticipationORM.challenge_id == challenge_id,
+    ).delete(synchronize_session=False)
+    db.delete(row)
     db.commit()
     return {"ok": True}

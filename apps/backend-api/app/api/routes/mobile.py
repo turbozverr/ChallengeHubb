@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_mobile_user
 from app.core.config import settings
 from app.infrastructure.db import (
+    AdVideoORM,
     ChallengeParticipationORM,
     MobileTokenORM,
     MobileUserORM,
@@ -70,12 +71,17 @@ router = APIRouter(prefix="/mobile", tags=["mobile"])
 logger = logging.getLogger("challengehub.api")
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _mobile_user_response(user: MobileUserORM) -> MobileUserResponse:
     return MobileUserResponse(**to_dict(user))
 
 
 def _video_response(video: ModerationVideoORM, db: Session, current_user_id: str | None = None) -> MobileVideoResponse:
     data = to_dict(video)
+    data["is_ad"] = False
     likes_count = db.scalar(select(func.count(VideoLikeORM.id)).where(VideoLikeORM.video_id == video.id)) or 0
     comments_count = db.scalar(select(func.count(VideoCommentORM.id)).where(VideoCommentORM.video_id == video.id)) or 0
     liked_by_me = False
@@ -99,6 +105,32 @@ def _video_response(video: ModerationVideoORM, db: Session, current_user_id: str
         data["challenge_title"] = challenge.title
         data["challenge_xp_reward"] = challenge.xp_reward
     return MobileVideoResponse(**data)
+
+
+def _ad_video_response(ad: AdVideoORM) -> MobileVideoResponse:
+    return MobileVideoResponse(
+        id=ad.id,
+        challenge_id="ad_catalog",
+        challenge_type="AD",
+        author_user_id=ad.created_by_admin_id or "system",
+        url=ad.file_path or ad.url or "",
+        description=ad.description,
+        ai_status="APPROVED",
+        status=ad.status,
+        reports_count=0,
+        is_ad=True,
+        views_count=ad.views_count,
+        likes_count=0,
+        shares_count=ad.shares_count,
+        created_at=ad.created_at.isoformat() if ad.created_at else _utc_now().isoformat(),
+        liked_by_me=False,
+        comments_count=0,
+        author_display_name="Реклама",
+        author_username="ad",
+        author_avatar_url=None,
+        challenge_title="Рекламне відео",
+        challenge_xp_reward=None,
+    )
 
 
 def _mobile_user_id_from_header(authorization: str | None, db: Session) -> str | None:
@@ -330,6 +362,35 @@ def _assistant_context(db: Session, user: MobileUserORM) -> tuple[dict[str, obje
     challenges += [_challenge_context_row(db, row, "USER") for row in regular]
     suggested = next(iter(sponsored), None) or next(iter(regular), None)
     context = {
+        "app_capabilities": {
+            "auth": ["email_login", "google_login"],
+            "feed": ["short_videos", "likes", "comments", "shares", "report_video"],
+            "challenges": [
+                "view_challenges",
+                "join_leave_challenge",
+                "challenge_details",
+                "create_user_challenge",
+                "upload_video_to_challenge",
+            ],
+            "profile": [
+                "view_own_and_public_profiles",
+                "follow_unfollow_users",
+                "edit_profile_name_username_avatar",
+                "pin_up_to_3_badges",
+                "profile_background_for_premium",
+            ],
+            "integrations": ["connect_youtube", "connect_tiktok", "export_video_after_publish"],
+            "premium": ["2x_xp_boost", "no_feed_ads", "ai_assistant_access"],
+            "assistant": ["challenge_recommendations", "feature_help", "motivation_and_plans"],
+            "moderation": ["ai_precheck", "manual_queue_for_flagged_content"],
+            "notifications": ["in_app_notifications", "inactivity_comeback_reminders"],
+        },
+        "feature_rules": {
+            "ai_assistant_requires_premium": True,
+            "video_upload_requires_selected_challenge": True,
+            "max_pinned_badges": 3,
+            "premium_backgrounds_only_for_premium": True,
+        },
         "user": {
             "id": user.id,
             "username": user.username,
@@ -366,7 +427,9 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
 Ти AI-помічник мобільного застосунку ChallengeHub.
 Відповідай українською мовою, коротко, конкретно і дружньо.
 Ти бачиш реальний контекст користувача: XP, рівень, premium-статус, отримані значки, участі в челенджах і доступні челенджі.
-Можеш радити топ челенджів, пояснювати як отримати XP/значки, пропонувати ідеї для відео і нагадувати про безпечну поведінку.
+Можеш радити топ челенджів, пояснювати як отримати XP/значки, пропонувати ідеї для відео, а також пояснювати функціонал застосунку:
+що натиснути, де знайти потрібну функцію, які є обмеження і що доступно тільки для Premium.
+Орієнтуйся на app_capabilities та feature_rules в контексті; якщо функції немає в app_capabilities — прямо скажи, що вона не підтримується.
 Не вигадуй неіснуючі значки, челенджі, нагороди або статистику. Якщо даних бракує, прямо скажи це і запропонуй практичний наступний крок.
 Не давай небезпечних, образливих, незаконних або медичних/фінансових інструкцій.
 Формат відповіді: 2-5 речень або короткий список до 4 пунктів.
@@ -853,15 +916,32 @@ def unfollow_user(
 def get_feed(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> list[MobileVideoResponse]:
     current_user_id = _mobile_user_id_from_header(authorization, db)
     current_user = db.get(MobileUserORM, current_user_id) if current_user_id else None
-    filters = [ModerationVideoORM.status == "PUBLISHED"]
-    if current_user and current_user.is_premium:
-        filters.append(ModerationVideoORM.is_ad == False)  # noqa: E712
     videos = (
-        db.execute(select(ModerationVideoORM).where(*filters).order_by(ModerationVideoORM.created_at.desc()))
+        db.execute(select(ModerationVideoORM).where(ModerationVideoORM.status == "PUBLISHED").order_by(ModerationVideoORM.created_at.desc()))
         .scalars()
         .all()
     )
-    return [_video_response(video, db, current_user_id) for video in videos]
+    if current_user and current_user.is_premium:
+        return [_video_response(video, db, current_user_id) for video in videos]
+
+    ads = (
+        db.execute(select(AdVideoORM).where(AdVideoORM.status == "PUBLISHED").order_by(AdVideoORM.created_at.desc()))
+        .scalars()
+        .all()
+    )
+    if not ads:
+        return [_video_response(video, db, current_user_id) for video in videos]
+
+    mixed: list[MobileVideoResponse] = []
+    ad_index = 0
+    for idx, item in enumerate(videos, start=1):
+        mixed.append(_video_response(item, db, current_user_id))
+        if idx % 4 == 0 and ad_index < len(ads):
+            mixed.append(_ad_video_response(ads[ad_index]))
+            ad_index += 1
+    if not videos:
+        mixed.extend(_ad_video_response(ad) for ad in ads[:3])
+    return mixed
 
 
 @router.get("/challenges", response_model=list[MobileChallengeResponse])
@@ -1013,7 +1093,6 @@ async def upload_challenge_video(
         ai_status=ai_status,
         status=moderation_status,
         reports_count=0,
-        is_ad=False,
     )
     participation = (
         db.query(ChallengeParticipationORM)
@@ -1078,7 +1157,6 @@ def like_video(
     existing = db.query(VideoLikeORM).filter(VideoLikeORM.video_id == video_id, VideoLikeORM.user_id == current_user.id).first()
     if not existing:
         db.add(VideoLikeORM(id=f"vl_{uuid4().hex[:10]}", video_id=video_id, user_id=current_user.id))
-        video.likes_count += 1
         author = db.get(MobileUserORM, video.author_user_id)
         if author:
             _refresh_user_badges(db, author)
@@ -1099,7 +1177,6 @@ def unlike_video(
     existing = db.query(VideoLikeORM).filter(VideoLikeORM.video_id == video_id, VideoLikeORM.user_id == current_user.id).first()
     if existing:
         db.delete(existing)
-        video.likes_count = max(0, video.likes_count - 1)
         db.commit()
         db.refresh(video)
     return _video_response(video, db, current_user.id)
@@ -1638,6 +1715,61 @@ def register_fcm_token(
     user.fcm_token = payload.token
     db.commit()
     return {"ok": True}
+
+
+@router.post("/notifications/jobs/inactivity-comeback")
+def run_inactivity_comeback_job(
+    x_job_token: str | None = Header(default=None, alias="X-Job-Token"),
+    inactivity_days: int = Query(default=3, ge=1, le=30),
+    cooldown_days: int = Query(default=3, ge=1, le=30),
+    max_inactive_days: int = Query(default=14, ge=3, le=90),
+    limit: int = Query(default=500, ge=1, le=5000),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    if not x_job_token or x_job_token != settings.mobile_jobs_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid job token")
+
+    now = _utc_now()
+    inactive_before = now - timedelta(days=inactivity_days)
+    max_inactive_before = now - timedelta(days=max_inactive_days)
+    title = "Ми сумуємо за вами"
+
+    users = (
+        db.execute(
+            select(MobileUserORM).where(
+                MobileUserORM.status == "ACTIVE",
+                MobileUserORM.last_active_at.is_not(None),
+                MobileUserORM.last_active_at <= inactive_before,
+                MobileUserORM.last_active_at >= max_inactive_before,
+            ).limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    if not users:
+        return {"checked": 0, "created": 0}
+
+    created = 0
+    for user in users:
+        if user.last_comeback_notified_at:
+            next_allowed = user.last_comeback_notified_at + timedelta(days=cooldown_days)
+            if next_allowed > now:
+                continue
+        if not user.last_active_at:
+            continue
+        db.add(
+            NotificationORM(
+                id=f"nt_{uuid4().hex[:10]}",
+                user_id=user.id,
+                title=title,
+                body="Поверніться в ChallengeHub: у вас є челенджі, які чекають на прогрес.",
+            )
+        )
+        user.last_comeback_notified_at = now
+        created += 1
+    if created:
+        db.commit()
+    return {"checked": len(users), "created": created}
 
 
 @router.post("/assistant", response_model=AssistantResponse)

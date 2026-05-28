@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -54,6 +54,7 @@ class MobileUserORM(Base):
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_comeback_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MobileTokenORM(Base):
@@ -121,7 +122,7 @@ class ChallengeParticipationORM(Base):
 class VideoCommentORM(Base):
     __tablename__ = "video_comments"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    video_id: Mapped[str] = mapped_column(ForeignKey("moderation_videos.id"), nullable=False)
+    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     likes_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -186,7 +187,7 @@ class PromoCodeORM(Base):
 
 
 class ModerationVideoORM(Base):
-    __tablename__ = "moderation_videos"
+    __tablename__ = "videos"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
     challenge_type: Mapped[str] = mapped_column(String(32), default="SPONSORED")
@@ -198,9 +199,7 @@ class ModerationVideoORM(Base):
     ai_status: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     reports_count: Mapped[int] = mapped_column(Integer, default=0)
-    is_ad: Mapped[bool] = mapped_column(Boolean, default=False)
     views_count: Mapped[int] = mapped_column(Integer, default=0)
-    likes_count: Mapped[int] = mapped_column(Integer, default=0)
     shares_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -210,7 +209,7 @@ class ModerationVideoORM(Base):
 class ReportTicketORM(Base):
     __tablename__ = "report_tickets"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    video_id: Mapped[str] = mapped_column(ForeignKey("moderation_videos.id"), nullable=False)
+    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id"), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
@@ -223,17 +222,20 @@ class VideoLikeORM(Base):
     __table_args__ = (UniqueConstraint("user_id", "video_id", name="ux_video_likes_user_video"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    video_id: Mapped[str] = mapped_column(ForeignKey("moderation_videos.id"), nullable=False)
+    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class AdVideoORM(Base):
     __tablename__ = "ad_videos"
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    challenge_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    video_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="PUBLISHED")
+    created_by_admin_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    views_count: Mapped[int] = mapped_column(Integer, default=0)
+    shares_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
@@ -260,36 +262,37 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         migrations = [
+            "RENAME TABLE moderation_videos TO videos",
             "ALTER TABLE sponsored_challenges ADD COLUMN difficulty VARCHAR(16) DEFAULT 'normal'",
             "ALTER TABLE sponsored_challenges ADD COLUMN duration_days INT DEFAULT 7",
             "ALTER TABLE sponsored_challenges ADD COLUMN xp_reward INT DEFAULT 100",
             "ALTER TABLE sponsored_challenges ADD COLUMN promo_mode VARCHAR(32) DEFAULT 'SINGLE'",
             "ALTER TABLE sponsored_challenges ADD COLUMN promo_single_code VARCHAR(255) NULL",
-            "ALTER TABLE moderation_videos ADD COLUMN is_ad BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE moderation_videos ADD COLUMN description TEXT NULL",
-            "ALTER TABLE moderation_videos ADD COLUMN ai_reason TEXT NULL",
-            "ALTER TABLE moderation_videos ADD COLUMN ai_confidence FLOAT NULL",
-            "ALTER TABLE moderation_videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
-            "ALTER TABLE moderation_videos ADD COLUMN views_count INT DEFAULT 0",
-            "ALTER TABLE moderation_videos ADD COLUMN likes_count INT DEFAULT 0",
-            "ALTER TABLE moderation_videos ADD COLUMN shares_count INT DEFAULT 0",
+            "ALTER TABLE videos ADD COLUMN description TEXT NULL",
+            "ALTER TABLE videos ADD COLUMN ai_reason TEXT NULL",
+            "ALTER TABLE videos ADD COLUMN ai_confidence FLOAT NULL",
+            "ALTER TABLE videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
+            "ALTER TABLE videos ADD COLUMN views_count INT DEFAULT 0",
+            "ALTER TABLE videos ADD COLUMN shares_count INT DEFAULT 0",
+            "ALTER TABLE videos DROP COLUMN is_ad",
+            "ALTER TABLE videos DROP COLUMN likes_count",
             "CREATE TABLE IF NOT EXISTS video_likes (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, video_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE UNIQUE INDEX ux_video_likes_user_video ON video_likes (user_id, video_id)",
             "ALTER TABLE video_likes DROP FOREIGN KEY video_likes_ibfk_1",
             "ALTER TABLE video_likes DROP FOREIGN KEY fk_video_likes_video",
-            "ALTER TABLE video_likes ADD CONSTRAINT fk_video_likes_video FOREIGN KEY (video_id) REFERENCES moderation_videos(id) ON DELETE CASCADE",
+            "ALTER TABLE video_likes ADD CONSTRAINT fk_video_likes_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
             "ALTER TABLE report_tickets DROP FOREIGN KEY report_tickets_ibfk_1",
             "ALTER TABLE report_tickets DROP FOREIGN KEY fk_report_tickets_video",
-            "ALTER TABLE report_tickets ADD CONSTRAINT fk_report_tickets_video FOREIGN KEY (video_id) REFERENCES moderation_videos(id) ON DELETE CASCADE",
+            "ALTER TABLE report_tickets ADD CONSTRAINT fk_report_tickets_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
             "ALTER TABLE video_comments DROP FOREIGN KEY video_comments_ibfk_1",
             "ALTER TABLE video_comments DROP FOREIGN KEY fk_video_comments_video",
-            "ALTER TABLE video_comments ADD CONSTRAINT fk_video_comments_video FOREIGN KEY (video_id) REFERENCES moderation_videos(id) ON DELETE CASCADE",
+            "ALTER TABLE video_comments ADD CONSTRAINT fk_video_comments_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
             "ALTER TABLE video_comment_likes DROP FOREIGN KEY video_comment_likes_ibfk_2",
             "ALTER TABLE video_comment_likes DROP FOREIGN KEY fk_video_comment_likes_comment",
             "ALTER TABLE video_comment_likes ADD CONSTRAINT fk_video_comment_likes_comment FOREIGN KEY (comment_id) REFERENCES video_comments(id) ON DELETE CASCADE",
-            "ALTER TABLE moderation_videos DROP FOREIGN KEY moderation_videos_ibfk_1",
+            "ALTER TABLE videos DROP FOREIGN KEY moderation_videos_ibfk_1",
             "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL, is_sent BOOLEAN DEFAULT FALSE)",
-            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NULL, title VARCHAR(255) NOT NULL, video_url TEXT NULL, file_path TEXT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, file_path TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_by_admin_id VARCHAR(64) NULL, views_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
             "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
             "ALTER TABLE mobile_users ADD COLUMN profile_background VARCHAR(64) NULL",
@@ -297,6 +300,7 @@ def init_db() -> None:
             "UPDATE mobile_users SET auth_provider = 'google' WHERE password = 'GOOGLE_OAUTH'",
             "UPDATE mobile_users SET auth_provider = 'password' WHERE auth_provider IS NULL",
             "ALTER TABLE mobile_users ADD COLUMN fcm_token TEXT NULL",
+            "ALTER TABLE mobile_users ADD COLUMN last_comeback_notified_at DATETIME NULL",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
             "CREATE UNIQUE INDEX ux_user_integrations_user_provider ON user_integrations (user_id, provider)",
@@ -313,8 +317,13 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS user_badges (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, badge_code VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, is_pinned BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS notifications (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, body TEXT NOT NULL, is_read BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
             "ALTER TABLE ad_videos ADD COLUMN file_path TEXT NULL",
-            "ALTER TABLE ad_videos MODIFY COLUMN challenge_id VARCHAR(64) NULL",
-            "ALTER TABLE ad_videos MODIFY COLUMN video_url TEXT NULL",
+            "ALTER TABLE ad_videos CHANGE COLUMN title description TEXT NULL",
+            "ALTER TABLE ad_videos CHANGE COLUMN video_url url TEXT NULL",
+            "ALTER TABLE ad_videos DROP COLUMN challenge_id",
+            "ALTER TABLE ad_videos ADD COLUMN status VARCHAR(32) DEFAULT 'PUBLISHED'",
+            "ALTER TABLE ad_videos ADD COLUMN created_by_admin_id VARCHAR(64) NULL",
+            "ALTER TABLE ad_videos ADD COLUMN views_count INT DEFAULT 0",
+            "ALTER TABLE ad_videos ADD COLUMN shares_count INT DEFAULT 0",
         ]
         for statement in migrations:
             try:
@@ -349,8 +358,8 @@ def init_db() -> None:
         db.flush()
         challenge = SponsoredChallengeORM(
             title="EVA Spring Challenge",
-            description="Зніми відео з покупкою набору гігієни EVA",
-            reward_text="Промокод на парфум",
+            description="Ð—Ð½Ñ–Ð¼Ð¸ Ð²Ñ–Ð´ÐµÐ¾ Ð· Ð¿Ð¾ÐºÑƒÐ¿ÐºÐ¾ÑŽ Ð½Ð°Ð±Ð¾Ñ€Ñƒ Ð³Ñ–Ð³Ñ–Ñ”Ð½Ð¸ EVA",
+            reward_text="ÐŸÑ€Ð¾Ð¼Ð¾ÐºÐ¾Ð´ Ð½Ð° Ð¿Ð°Ñ€Ñ„ÑƒÐ¼",
             difficulty="normal",
             duration_days=7,
             xp_reward=200,
@@ -366,12 +375,12 @@ def init_db() -> None:
         db.flush()
         db.add_all(
             [
-                ModerationVideoORM(id="vid_1", challenge_id=challenge.id, author_user_id="mobile_user_1", url="https://cdn.challengehub.local/video/1", description="Відео-звіт 1", ai_status="REJECTED", status="PENDING_MANUAL", reports_count=1, views_count=124, likes_count=17, shares_count=5),
-                ModerationVideoORM(id="vid_2", challenge_id=challenge.id, author_user_id="mobile_user_2", url="https://cdn.challengehub.local/video/2", description="Відео-звіт 2", ai_status="APPROVED", status="PUBLISHED", reports_count=4, is_ad=True, views_count=509, likes_count=66, shares_count=14),
+                ModerationVideoORM(id="vid_1", challenge_id=challenge.id, author_user_id="mobile_user_1", url="https://cdn.challengehub.local/video/1", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 1", ai_status="REJECTED", status="PENDING_MANUAL", reports_count=1, views_count=124, shares_count=5),
+                ModerationVideoORM(id="vid_2", challenge_id=challenge.id, author_user_id="mobile_user_2", url="https://cdn.challengehub.local/video/2", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 2", ai_status="APPROVED", status="PUBLISHED", reports_count=4, views_count=509, shares_count=14),
             ]
         )
-        db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="Підозра на недоречний контент", status="OPEN"))
-        db.add(AdVideoORM(id="ad_1", challenge_id=None, title="EVA Promo Intro", video_url="https://cdn.challengehub.local/ad/1"))
+        db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="ÐŸÑ–Ð´Ð¾Ð·Ñ€Ð° Ð½Ð° Ð½ÐµÐ´Ð¾Ñ€ÐµÑ‡Ð½Ð¸Ð¹ ÐºÐ¾Ð½Ñ‚ÐµÐ½Ñ‚", status="OPEN"))
+        db.add(AdVideoORM(id="ad_1", description="EVA Promo Intro", url="https://cdn.challengehub.local/ad/1"))
         db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026", is_sent=False))
         db.add(SystemSettingsORM(id="settings_main", ai_confidence_threshold=0.85, report_limit=3))
         mobile_user = MobileUserORM(
@@ -398,3 +407,4 @@ def get_db():
         yield db
     finally:
         db.close()
+

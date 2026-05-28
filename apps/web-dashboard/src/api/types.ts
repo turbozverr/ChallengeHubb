@@ -54,6 +54,18 @@ export interface SponsoredChallengeResponse {
   published_at: string | null;
 }
 
+export interface UserChallengeAdminResponse {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: string;
+  duration_days: number;
+  xp_reward: number;
+  created_by_user_id: string;
+  status: string;
+  created_at: string;
+}
+
 export interface ModerationVideoResponse {
   id: string;
   challenge_id: string;
@@ -65,7 +77,6 @@ export interface ModerationVideoResponse {
   ai_status: string;
   status: string;
   reports_count: number;
-  is_ad: boolean;
   views_count: number;
   likes_count: number;
   shares_count: number;
@@ -148,9 +159,13 @@ export interface PromoCodeResponse {
 
 export interface AdVideoResponse {
   id: string;
-  challenge_id: string;
-  title: string;
-  video_url: string;
+  description: string | null;
+  url: string | null;
+  file_path: string | null;
+  status: string;
+  created_by_admin_id: string | null;
+  views_count: number;
+  shares_count: number;
   created_at: string;
 }
 

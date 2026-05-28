@@ -11,6 +11,7 @@ import type {
   AdVideoResponse,
   SystemSettingsResponse,
   SponsoredChallengeResponse,
+  UserChallengeAdminResponse,
   WebUserResponse
 } from "./types";
 
@@ -23,12 +24,15 @@ async function request<T>(path: string, init?: RequestInit, token?: string): Pro
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
+    let parsedDetail: unknown = null;
     try {
-      const parsed = JSON.parse(text) as { detail?: string };
-      throw new Error(parsed.detail ?? text ?? "Request failed");
+      parsedDetail = (JSON.parse(text) as { detail?: unknown }).detail ?? null;
     } catch {
-      throw new Error(text || "Request failed");
+      parsedDetail = null;
     }
+    if (typeof parsedDetail === "string") throw new Error(parsedDetail);
+    if (parsedDetail && typeof parsedDetail === "object") throw new Error(JSON.stringify(parsedDetail));
+    throw new Error(text || "Request failed");
   }
   return (await response.json()) as T;
 }
@@ -100,6 +104,9 @@ export const api = {
       difficulty?: string;
       duration_days?: number;
       xp_reward?: number;
+      promo_mode?: string;
+      promo_single_code?: string;
+      promo_codes?: string[];
       status?: string;
     }
   ) =>
@@ -112,9 +119,9 @@ export const api = {
     request<{ ok: boolean }>(`/sponsored-challenges/${challengeId}`, { method: "DELETE" }, token),
   unsentPromoCodes: (token: string) =>
     request<PromoCodeResponse[]>("/sponsored-challenges/promo/unsent", undefined, token),
-  uploadAdVideo: async (token: string, payload: { title: string; file: File }) => {
+  uploadAdVideo: async (token: string, payload: { description: string; file: File }) => {
     const form = new FormData();
-    form.append("title", payload.title);
+    form.append("description", payload.description);
     form.append("file", payload.file);
     const response = await fetch(`${API_BASE_URL}/sponsored-challenges/ad-videos`, {
       method: "POST",
@@ -125,6 +132,20 @@ export const api = {
     return (await response.json()) as AdVideoResponse;
   },
   listAdVideos: (token: string) => request<AdVideoResponse[]>("/sponsored-challenges/ad-videos", undefined, token),
+  updateAdVideo: async (token: string, adVideoId: string, payload: { description?: string; status?: string }) => {
+    const form = new FormData();
+    if (payload.description !== undefined) form.append("description", payload.description);
+    if (payload.status !== undefined) form.append("status", payload.status);
+    const response = await fetch(`${API_BASE_URL}/sponsored-challenges/ad-videos/${adVideoId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return (await response.json()) as AdVideoResponse;
+  },
+  deleteAdVideo: (token: string, adVideoId: string) =>
+    request<{ ok: boolean }>(`/sponsored-challenges/ad-videos/${adVideoId}`, { method: "DELETE" }, token),
   moderationVideoQueue: (token: string) =>
     request<ModerationVideoResponse[]>("/moderation/videos/queue", undefined, token),
   decideVideo: (token: string, videoId: string, decision: "APPROVE" | "BLOCK") =>
@@ -142,13 +163,29 @@ export const api = {
       token
     ),
   adminVideos: (token: string) => request<ModerationVideoResponse[]>("/moderation/videos", undefined, token),
-  updateVideo: (token: string, videoId: string, payload: { url?: string; description?: string; status?: string; is_ad?: boolean }) =>
+  updateVideo: (token: string, videoId: string, payload: { url?: string; description?: string; status?: string }) =>
     request<ModerationVideoResponse>(`/moderation/videos/${videoId}`, { method: "PATCH", body: JSON.stringify(payload) }, token),
   deleteVideo: (token: string, videoId: string) =>
     request<{ ok: boolean }>(`/moderation/videos/${videoId}`, { method: "DELETE" }, token),
   campaignStats: (token: string) => request<CampaignStatsResponse[]>("/analytics/campaigns", undefined, token),
   adminDashboardAnalytics: (token: string) =>
     request<AdminDashboardAnalyticsResponse>("/analytics/admin-dashboard", undefined, token),
+  listUserChallenges: (token: string) =>
+    request<UserChallengeAdminResponse[]>("/admin/user-challenges", undefined, token),
+  updateUserChallenge: (
+    token: string,
+    challengeId: string,
+    payload: {
+      title?: string;
+      description?: string;
+      difficulty?: string;
+      duration_days?: number;
+      xp_reward?: number;
+      status?: string;
+    }
+  ) => request<UserChallengeAdminResponse>(`/admin/user-challenges/${challengeId}`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+  deleteUserChallenge: (token: string, challengeId: string) =>
+    request<{ ok: boolean }>(`/admin/user-challenges/${challengeId}`, { method: "DELETE" }, token),
   businessDashboardAnalytics: (token: string) =>
     request<BusinessDashboardAnalyticsResponse>("/analytics/business-dashboard", undefined, token),
   getSettings: (token: string) => request<SystemSettingsResponse>("/settings", undefined, token),

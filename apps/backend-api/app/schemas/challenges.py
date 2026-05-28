@@ -21,6 +21,9 @@ class UpdateSponsoredChallengeRequest(BaseModel):
     difficulty: str | None = None
     duration_days: int | None = None
     xp_reward: int | None = None
+    promo_mode: str | None = None
+    promo_single_code: str | None = None
+    promo_codes: list[str] | None = None
     status: str | None = None
 
 
@@ -51,8 +54,11 @@ class PromoCodeResponse(BaseModel):
 
 class AdVideoResponse(BaseModel):
     id: str
-    challenge_id: str | None = None
-    title: str
-    video_url: str | None = None
+    description: str | None = None
+    url: str | None = None
     file_path: str | None = None
+    status: str
+    created_by_admin_id: str | None = None
+    views_count: int = 0
+    shares_count: int = 0
     created_at: str

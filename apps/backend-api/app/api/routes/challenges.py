@@ -47,7 +47,7 @@ def list_ad_videos(current_user: MeResponse = Depends(get_current_web_user), db:
 
 @router.post("/ad-videos", response_model=AdVideoResponse)
 async def upload_ad_video(
-    title: str = Form(...),
+    description: str = Form(...),
     file: UploadFile = File(...),
     current_user: MeResponse = Depends(get_current_web_user),
     db: Session = Depends(get_db),
@@ -60,11 +60,54 @@ async def upload_ad_video(
     target = uploads_dir / file_name
     content = await file.read()
     target.write_bytes(content)
-    row = AdVideoORM(id=f"ad_{uuid4().hex[:10]}", challenge_id=None, title=title, video_url=None, file_path=str(target).replace("\\", "/"))
+    row = AdVideoORM(
+        id=f"ad_{uuid4().hex[:10]}",
+        description=description,
+        url=None,
+        file_path=str(target).replace("\\", "/"),
+        created_by_admin_id=current_user.id,
+        status="PUBLISHED",
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
     return AdVideoResponse(**to_dict(row))
+
+
+@router.patch("/ad-videos/{ad_video_id}", response_model=AdVideoResponse)
+def update_ad_video(
+    ad_video_id: str,
+    description: str | None = Form(default=None),
+    status_value: str | None = Form(default=None, alias="status"),
+    current_user: MeResponse = Depends(get_current_web_user),
+    db: Session = Depends(get_db),
+) -> AdVideoResponse:
+    require_roles({WebRole.ADMIN}, current_user)
+    row = db.get(AdVideoORM, ad_video_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad video not found")
+    if description is not None:
+        row.description = description
+    if status_value is not None:
+        row.status = status_value
+    db.commit()
+    db.refresh(row)
+    return AdVideoResponse(**to_dict(row))
+
+
+@router.delete("/ad-videos/{ad_video_id}")
+def delete_ad_video(
+    ad_video_id: str,
+    current_user: MeResponse = Depends(get_current_web_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    require_roles({WebRole.ADMIN}, current_user)
+    row = db.get(AdVideoORM, ad_video_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad video not found")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("", response_model=list[SponsoredChallengeResponse])
@@ -130,6 +173,18 @@ def update_sponsored_challenge(challenge_id: str, payload: UpdateSponsoredChalle
             setattr(challenge, field, value)
     if payload.xp_reward is not None:
         challenge.xp_reward = max(1, min(payload.xp_reward, 2000))
+    if payload.promo_mode is not None:
+        challenge.promo_mode = payload.promo_mode
+    if payload.promo_single_code is not None:
+        challenge.promo_single_code = payload.promo_single_code
+    if payload.promo_codes is not None:
+        db.query(PromoCodeORM).filter(PromoCodeORM.challenge_id == challenge_id).delete()
+        if challenge.promo_mode == "LIST":
+            for code in payload.promo_codes:
+                code_norm = code.strip()
+                if not code_norm:
+                    continue
+                db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id=challenge.id, code=code_norm, is_sent=False))
     db.commit()
     db.refresh(challenge)
     return SponsoredChallengeResponse(**to_dict(challenge))

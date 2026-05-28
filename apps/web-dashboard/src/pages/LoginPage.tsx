@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+﻿import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
@@ -20,7 +20,8 @@ export function LoginPage() {
       else if (user.role === "MODERATOR") navigate("/app/moderation");
       else navigate("/app/business");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка авторизації");
+      const message = e instanceof Error ? e.message : "Помилка авторизації";
+      setError(message === "Invalid credentials" ? "Невірний email або пароль" : message);
     } finally {
       setLoading(false);
     }
@@ -28,7 +29,7 @@ export function LoginPage() {
 
   return (
     <div className="card">
-      <h1>Вхід у ChallengeHub WebSystem</h1>
+      <h1>Вхід у ChallengeHub</h1>
       <p className="muted">admin/moderator/business@challengehub.dev | 12345</p>
       <form className="column" onSubmit={handleSubmit}>
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />

@@ -147,8 +147,6 @@ def update_video(
         video.description = payload.description
     if payload.status is not None:
         video.status = payload.status
-    if payload.is_ad is not None:
-        video.is_ad = payload.is_ad
     db.commit()
     db.refresh(video)
     likes_map = _likes_count_map(db)

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import WebUserORM, get_db, to_dict
+from app.infrastructure.db import TokenORM, WebUserORM, get_db, to_dict
 from app.schemas.auth import MeResponse
 from app.schemas.web_users import CreateWebUserRequest, UpdateWebUserRequest, WebUserResponse
 
@@ -80,6 +80,7 @@ def delete_web_user(
     user = db.get(WebUserORM, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db.query(TokenORM).filter(TokenORM.user_id == user_id).delete(synchronize_session=False)
     db.delete(user)
     db.commit()
     return {"ok": True}

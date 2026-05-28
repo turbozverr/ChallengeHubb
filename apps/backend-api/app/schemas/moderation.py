@@ -13,7 +13,6 @@ class ModerationVideoResponse(BaseModel):
     ai_status: str
     status: str
     reports_count: int
-    is_ad: bool
     views_count: int = 0
     likes_count: int = 0
     shares_count: int = 0
@@ -41,4 +40,3 @@ class UpdateVideoRequest(BaseModel):
     url: str | None = None
     description: str | None = None
     status: str | None = None
-    is_ad: bool | None = None

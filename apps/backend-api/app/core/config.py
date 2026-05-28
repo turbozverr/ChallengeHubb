@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     stripe_cancel_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/premium/cancel"
     gemini_api_key: str = "AQ.Ab8RN6LAzpYc3TA1FceXBM6sRT5A8IXIn_Jwr4NTcRb2EVJs0g"
     gemini_model: str = "gemini-2.5-flash"
+    mobile_jobs_token: str = "change-me-mobile-jobs-token"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CH_")
 
