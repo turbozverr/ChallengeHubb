@@ -1044,7 +1044,7 @@ def leave_challenge(
     payload: JoinChallengeRequest,
     current_user: MobileUserResponse = Depends(get_current_mobile_user),
     db: Session = Depends(get_db),
-):
+) -> ChallengeParticipationResponse:
     row = (
         db.query(ChallengeParticipationORM)
         .filter(
@@ -1056,8 +1056,10 @@ def leave_challenge(
     )
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participation not found")
+    data = to_dict(row)
     db.delete(row)
     db.commit()
+    return ChallengeParticipationResponse(**data)
 
 
 @router.post("/videos", response_model=MobileVideoResponse)
