@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -265,7 +264,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def to_dict(obj: object) -> dict:
     data: dict[str, object] = {}
-    for column in obj.__table__.columns:  # type: ignore[attr-defined]
+    for column in obj.__table__.columns:
         value = getattr(obj, column.name)
         data[column.name] = value.isoformat() if isinstance(value, datetime) else value
     return data
@@ -274,7 +273,6 @@ def to_dict(obj: object) -> dict:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
-        # Keep only creation/index statements and avoid historical ALTER/DROP patch noise.
         migrations = [
             "RENAME TABLE moderation_videos TO videos",
             "CREATE TABLE IF NOT EXISTS web_users (id VARCHAR(64) PRIMARY KEY, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, role VARCHAR(32) NOT NULL, password VARCHAR(255) NOT NULL, company_name VARCHAR(255) NULL, is_active BOOLEAN DEFAULT TRUE, created_at DATETIME NULL)",
@@ -316,72 +314,10 @@ def init_db() -> None:
                 pass
     with SessionLocal() as db:
         if db.query(WebUserORM).count() > 0:
-            if db.query(MobileUserORM).count() == 0:
-                db.add(
-                    MobileUserORM(
-                        id="mobile_user_1",
-                        username="demo_user",
-                        full_name="Demo User",
-                        email="user@challengehub.dev",
-                        password="user123",
-                        auth_provider="password",
-                        bio="ChallengeHub user bio",
-                        xp=420,
-                        is_premium=False,
-                        status="ACTIVE",
-                        last_active_at=now_utc(),
-                    )
-                )
-                db.add(UserBadgeORM(id="badge_1", user_id="mobile_user_1", badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
-                db.commit()
             return
         admin = WebUserORM(id="w_admin_1", full_name="Admin ChallengeHub", email="admin@challengehub.dev", role=WebRole.ADMIN.value, password="12345")
-        moderator = WebUserORM(id="w_mod_1", full_name="Moderator ChallengeHub", email="moderator@challengehub.dev", role=WebRole.MODERATOR.value, password="12345")
-        business = WebUserORM(id="w_biz_1", full_name="Brand Manager EVA", email="business@challengehub.dev", role=WebRole.BUSINESS_CLIENT.value, password="12345", company_name="EVA")
-        db.add_all([admin, moderator, business])
-        db.flush()
-        challenge = SponsoredChallengeORM(
-            title="EVA Spring Challenge",
-            description="Ð—Ð½Ñ–Ð¼Ð¸ Ð²Ñ–Ð´ÐµÐ¾ Ð· Ð¿Ð¾ÐºÑƒÐ¿ÐºÐ¾ÑŽ Ð½Ð°Ð±Ð¾Ñ€Ñƒ Ð³Ñ–Ð³Ñ–Ñ”Ð½Ð¸ EVA",
-            reward_text="ÐŸÑ€Ð¾Ð¼Ð¾ÐºÐ¾Ð´ Ð½Ð° Ð¿Ð°Ñ€Ñ„ÑƒÐ¼",
-            difficulty="normal",
-            duration_days=7,
-            xp_reward=200,
-            promo_mode="SINGLE",
-            promo_single_code="EVA-PARFUM-2026",
-            client_id=business.id,
-            client_company_name="EVA",
-            status="PUBLISHED",
-            created_by_admin_id=admin.id,
-            published_at=now_utc(),
-        )
-        db.add(challenge)
-        db.flush()
-        db.add_all(
-            [
-                ModerationVideoORM(id="vid_1", challenge_id=challenge.id, author_user_id="mobile_user_1", url="https://cdn.challengehub.local/video/1", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 1", ai_status="REJECTED", status="PENDING_MANUAL", reports_count=1, views_count=124, shares_count=5),
-                ModerationVideoORM(id="vid_2", challenge_id=challenge.id, author_user_id="mobile_user_2", url="https://cdn.challengehub.local/video/2", description="Ð’Ñ–Ð´ÐµÐ¾-Ð·Ð²Ñ–Ñ‚ 2", ai_status="APPROVED", status="PUBLISHED", reports_count=4, views_count=509, shares_count=14),
-            ]
-        )
-        db.add(ReportTicketORM(id="rep_1", video_id="vid_2", reason="ÐŸÑ–Ð´Ð¾Ð·Ñ€Ð° Ð½Ð° Ð½ÐµÐ´Ð¾Ñ€ÐµÑ‡Ð½Ð¸Ð¹ ÐºÐ¾Ð½Ñ‚ÐµÐ½Ñ‚", status="OPEN"))
-        db.add(AdVideoORM(id="ad_1", description="EVA Promo Intro", url="https://cdn.challengehub.local/ad/1"))
-        db.add(PromoCodeORM(id=f"pc_{uuid4().hex[:10]}", challenge_id="sp_1", code="EVA-PARFUM-2026"))
+        db.add(admin)
         db.add(SystemSettingsORM(id="settings_main", ai_confidence_threshold=0.85, report_limit=3))
-        mobile_user = MobileUserORM(
-            id="mobile_user_1",
-            username="demo_user",
-            full_name="Demo User",
-            email="user@challengehub.dev",
-            password="user123",
-            auth_provider="password",
-            bio="ChallengeHub user bio",
-            xp=420,
-            is_premium=False,
-            status="ACTIVE",
-            last_active_at=now_utc(),
-        )
-        db.add(mobile_user)
-        db.add(UserBadgeORM(id="badge_1", user_id=mobile_user.id, badge_code="first_video", title="First Video", description="Uploaded first challenge video", is_pinned=True))
         db.commit()
 
 
