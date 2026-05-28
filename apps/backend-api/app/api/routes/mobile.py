@@ -479,13 +479,14 @@ def _moderate_video_with_gemini(
         reject_confidence = max(0.0, min(1.0, reject_confidence))
         reason = str(data.get("reason") or "").strip() or None
         logger.info(
-            "AI moderation result: decision=%s reject_confidence=%.3f threshold=%.3f reason=%s description=%s prompt=%s",
+            "AI moderation result: decision=%s reject_confidence=%.3f threshold=%.3f reason=%s description=%s prompt=%s result=%s",
             decision,
             reject_confidence,
             threshold,
             reason or "-",
             video_description or "-",
             prompt.replace("\n", "\\n"),
+            text,
         )
         if decision == "REJECT" and reject_confidence >= threshold:
             return "REJECTED", "PENDING_MANUAL", reason, reject_confidence
