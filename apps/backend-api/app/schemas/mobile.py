@@ -25,7 +25,6 @@ class MobileUserResponse(BaseModel):
     auth_provider: str = "password"
     avatar_url: str | None = None
     profile_background: str | None = None
-    bio: str | None = None
     xp: int
     is_premium: bool
     status: str
@@ -51,7 +50,6 @@ class PublicProfileResponse(BaseModel):
 class UpdateMobileProfileRequest(BaseModel):
     username: str | None = Field(default=None, min_length=3, max_length=64)
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
-    bio: str | None = Field(default=None, max_length=500)
     avatar_url: str | None = None
     profile_background: str | None = None
 

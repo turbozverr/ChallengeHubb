@@ -43,7 +43,6 @@ def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
         auth_provider=user.auth_provider,
         avatar_url=user.avatar_url,
         profile_background=user.profile_background,
-        bio=user.bio,
         xp=user.xp,
         is_premium=user.is_premium,
         status=user.status,

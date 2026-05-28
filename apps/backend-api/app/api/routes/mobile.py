@@ -1623,8 +1623,6 @@ def update_profile(
         if not full_name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Display name cannot be empty")
         user.full_name = full_name
-    if payload.bio is not None:
-        user.bio = payload.bio
     if payload.avatar_url is not None:
         user.avatar_url = payload.avatar_url
     if payload.profile_background is not None:

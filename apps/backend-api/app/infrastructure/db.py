@@ -46,7 +46,6 @@ class MobileUserORM(Base):
     auth_provider: Mapped[str] = mapped_column(String(32), default="password")
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile_background: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
     fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -277,7 +276,7 @@ def init_db() -> None:
             "RENAME TABLE moderation_videos TO videos",
             "CREATE TABLE IF NOT EXISTS web_users (id VARCHAR(64) PRIMARY KEY, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, role VARCHAR(32) NOT NULL, password VARCHAR(255) NOT NULL, company_name VARCHAR(255) NULL, is_active BOOLEAN DEFAULT TRUE, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
-            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, profile_background VARCHAR(64) NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, fcm_token TEXT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL, last_comeback_notified_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, profile_background VARCHAR(64) NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, fcm_token TEXT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL, last_comeback_notified_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS integration_states (state VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, created_at DATETIME NULL)",
