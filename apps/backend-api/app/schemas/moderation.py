@@ -9,6 +9,7 @@ class ModerationVideoResponse(BaseModel):
     url: str
     description: str | None = None
     ai_reason: str | None = None
+    ai_confidence: float | None = None
     ai_status: str
     status: str
     reports_count: int

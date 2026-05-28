@@ -61,6 +61,7 @@ export interface ModerationVideoResponse {
   url: string;
   description: string | null;
   ai_reason: string | null;
+  ai_confidence: number | null;
   ai_status: string;
   status: string;
   reports_count: number;

@@ -193,6 +193,7 @@ class ModerationVideoORM(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     ai_status: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     reports_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -266,6 +267,7 @@ def init_db() -> None:
             "ALTER TABLE moderation_videos ADD COLUMN is_ad BOOLEAN DEFAULT FALSE",
             "ALTER TABLE moderation_videos ADD COLUMN description TEXT NULL",
             "ALTER TABLE moderation_videos ADD COLUMN ai_reason TEXT NULL",
+            "ALTER TABLE moderation_videos ADD COLUMN ai_confidence FLOAT NULL",
             "ALTER TABLE moderation_videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
             "ALTER TABLE moderation_videos ADD COLUMN views_count INT DEFAULT 0",
             "ALTER TABLE moderation_videos ADD COLUMN likes_count INT DEFAULT 0",

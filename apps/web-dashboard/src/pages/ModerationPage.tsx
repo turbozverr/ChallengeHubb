@@ -47,6 +47,7 @@ export function ModerationPage() {
                 <th>ID</th>
                 <th>Контент</th>
                 <th>Рішення AI</th>
+                <th>AI confidence</th>
                 <th>Пояснення AI</th>
                 <th>Скарги</th>
                 <th>Рішення</th>
@@ -62,6 +63,7 @@ export function ModerationPage() {
                     </button>
                   </td>
                   <td>{aiLabels[video.ai_status] ?? video.ai_status}</td>
+                  <td>{typeof video.ai_confidence === "number" ? `${Math.round(video.ai_confidence * 100)}%` : "-"}</td>
                   <td title={video.ai_reason ?? ""}>{video.ai_reason ?? "-"}</td>
                   <td>{video.reports_count}</td>
                   <td>

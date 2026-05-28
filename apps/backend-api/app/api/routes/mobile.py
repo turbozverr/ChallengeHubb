@@ -4,6 +4,7 @@ from urllib.parse import quote, urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import json
+import logging
 import re
 from typing import Any
 from uuid import uuid4
@@ -66,6 +67,7 @@ from app.schemas.mobile import (
 )
 
 router = APIRouter(prefix="/mobile", tags=["mobile"])
+logger = logging.getLogger("challengehub.api")
 
 
 def _mobile_user_response(user: MobileUserORM) -> MobileUserResponse:
@@ -431,9 +433,9 @@ def _moderate_video_with_gemini(
     video_description: str | None,
     filename: str,
     threshold: float,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, str, str | None, float | None]:
     if not settings.gemini_api_key:
-        return "APPROVED", "PUBLISHED", None
+        return "REJECTED", "PENDING_MANUAL", "Gemini API key is missing", None
 
     prompt = (
         "You are a strict challenge-video moderation classifier.\n"
@@ -445,7 +447,12 @@ def _moderate_video_with_gemini(
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "topP": 0.9, "maxOutputTokens": 120},
+        "generationConfig": {
+            "temperature": 0.1,
+            "topP": 0.9,
+            "maxOutputTokens": 120,
+            "responseMimeType": "application/json",
+        },
     }
     request = Request(
         f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent",
@@ -465,11 +472,20 @@ def _moderate_video_with_gemini(
         except Exception:
             reject_confidence = 0.0
         reject_confidence = max(0.0, min(1.0, reject_confidence))
+        reason = str(data.get("reason") or "").strip() or None
+        logger.info(
+            "AI moderation result: decision=%s reject_confidence=%.3f threshold=%.3f reason=%s",
+            decision,
+            reject_confidence,
+            threshold,
+            reason or "-",
+        )
         if decision == "REJECT" and reject_confidence >= threshold:
-            return "REJECTED", "PENDING_MANUAL", str(data.get("reason") or "").strip() or None
-        return "APPROVED", "PUBLISHED", str(data.get("reason") or "").strip() or None
-    except Exception:
-        return "APPROVED", "PUBLISHED", None
+            return "REJECTED", "PENDING_MANUAL", reason, reject_confidence
+        return "APPROVED", "PUBLISHED", reason, reject_confidence
+    except Exception as exc:
+        logger.exception("AI moderation failed, fallback to manual moderation: %s", exc)
+        return "REJECTED", "PENDING_MANUAL", "AI moderation unavailable, routed to manual review", None
 
 
 def _youtube_oauth_configured() -> bool:
@@ -971,7 +987,7 @@ async def upload_challenge_video(
     target.write_bytes(await file.read())
     system_settings = db.get(SystemSettingsORM, "settings_main")
     threshold = float(system_settings.ai_confidence_threshold) if system_settings else 0.85
-    ai_status, moderation_status, ai_reason = _moderate_video_with_gemini(
+    ai_status, moderation_status, ai_reason, ai_confidence = _moderate_video_with_gemini(
         challenge_title=challenge.title,
         challenge_description=challenge.description,
         video_description=description,
@@ -986,6 +1002,7 @@ async def upload_challenge_video(
         url=str(target).replace("\\", "/"),
         description=description,
         ai_reason=ai_reason,
+        ai_confidence=ai_confidence,
         ai_status=ai_status,
         status=moderation_status,
         reports_count=0,
