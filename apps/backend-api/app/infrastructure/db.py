@@ -46,6 +46,7 @@ class MobileUserORM(Base):
     password: Mapped[str] = mapped_column(String(255), nullable=False)
     auth_provider: Mapped[str] = mapped_column(String(32), default="password")
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    profile_background: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     xp: Mapped[int] = mapped_column(Integer, default=0)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -291,6 +292,7 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NULL, title VARCHAR(255) NOT NULL, video_url TEXT NULL, file_path TEXT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
             "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
+            "ALTER TABLE mobile_users ADD COLUMN profile_background VARCHAR(64) NULL",
             "ALTER TABLE mobile_users ADD COLUMN auth_provider VARCHAR(32) DEFAULT 'password'",
             "UPDATE mobile_users SET auth_provider = 'google' WHERE password = 'GOOGLE_OAUTH'",
             "UPDATE mobile_users SET auth_provider = 'password' WHERE auth_provider IS NULL",

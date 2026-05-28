@@ -24,6 +24,7 @@ class MobileUserResponse(BaseModel):
     email: str
     auth_provider: str = "password"
     avatar_url: str | None = None
+    profile_background: str | None = None
     bio: str | None = None
     xp: int
     is_premium: bool
@@ -52,6 +53,7 @@ class UpdateMobileProfileRequest(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     bio: str | None = Field(default=None, max_length=500)
     avatar_url: str | None = None
+    profile_background: str | None = None
 
 
 class PinBadgesRequest(BaseModel):

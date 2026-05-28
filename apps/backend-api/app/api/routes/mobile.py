@@ -1479,10 +1479,35 @@ def update_profile(
     user = db.get(MobileUserORM, current_user.id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    for field in ["username", "full_name", "bio", "avatar_url"]:
-        value = getattr(payload, field)
-        if value is not None:
-            setattr(user, field, value)
+    if payload.username is not None:
+        normalized_username = payload.username.strip()
+        if not normalized_username:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username cannot be empty")
+        existing = db.execute(
+            select(MobileUserORM).where(
+                MobileUserORM.username == normalized_username,
+                MobileUserORM.id != current_user.id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+        user.username = normalized_username
+    if payload.full_name is not None:
+        full_name = payload.full_name.strip()
+        if not full_name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Display name cannot be empty")
+        user.full_name = full_name
+    if payload.bio is not None:
+        user.bio = payload.bio
+    if payload.avatar_url is not None:
+        user.avatar_url = payload.avatar_url
+    if payload.profile_background is not None:
+        allowed_backgrounds = {"background-1", "background-2", "background-3", "background-4"}
+        if payload.profile_background and payload.profile_background not in allowed_backgrounds:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported profile background")
+        if payload.profile_background and not user.is_premium:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile backgrounds are available only for Premium users")
+        user.profile_background = payload.profile_background or None
     db.commit()
     db.refresh(user)
     return _mobile_user_response(user)
