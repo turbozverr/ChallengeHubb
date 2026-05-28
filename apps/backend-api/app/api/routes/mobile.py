@@ -1703,6 +1703,21 @@ def get_notifications(
     return [NotificationResponse(**to_dict(row)) for row in rows]
 
 
+@router.post("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: str,
+    current_user: MobileUserResponse = Depends(get_current_mobile_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    row = db.get(NotificationORM, notification_id)
+    if not row or row.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    if not row.is_read:
+        row.is_read = True
+        db.commit()
+    return {"ok": True}
+
+
 @router.post("/notifications/fcm-token")
 def register_fcm_token(
     payload: FcmTokenRequest,
