@@ -3,9 +3,12 @@ from datetime import timedelta
 from urllib.parse import quote, urlencode
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+import base64
 import json
 import logging
 import re
+import subprocess
+import tempfile
 from typing import Any
 from uuid import uuid4
 
@@ -426,27 +429,82 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
         return None
 
 
+def _extract_moderation_frames(video_path: Path, frames_count: int = 2) -> list[bytes]:
+    frames: list[bytes] = []
+    if not video_path.exists():
+        return frames
+    with tempfile.TemporaryDirectory(prefix="ch_moderation_") as tmp:
+        tmp_dir = Path(tmp)
+        # Use two distant points to cover different moments of video.
+        timestamps = ["00:00:01", "00:00:03"][: max(1, frames_count)]
+        for idx, ts in enumerate(timestamps):
+            out = tmp_dir / f"frame_{idx}.jpg"
+            command = [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                ts,
+                "-i",
+                str(video_path),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "4",
+                str(out),
+            ]
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=20, check=False)
+                if result.returncode != 0:
+                    logger.warning("ffmpeg frame extraction failed at %s: %s", ts, result.stderr.strip())
+                    continue
+                if out.exists():
+                    frames.append(out.read_bytes())
+            except Exception as exc:
+                logger.warning("ffmpeg frame extraction error: %s", exc)
+    return frames
+
+
 def _moderate_video_with_gemini(
     *,
     challenge_title: str,
     challenge_description: str,
     video_description: str | None,
     filename: str,
+    video_path: Path,
     threshold: float,
 ) -> tuple[str, str, str | None, float | None]:
     if not settings.gemini_api_key:
         return "REJECTED", "PENDING_MANUAL", "Gemini API key is missing", None
 
+    frames = _extract_moderation_frames(video_path, frames_count=2)
+    if not frames:
+        return "REJECTED", "PENDING_MANUAL", "Unable to extract video frames for AI moderation", None
+
     prompt = (
         "You are a strict challenge-video moderation classifier.\n"
+        "Analyze provided video frames together with metadata.\n"
         "Return ONLY JSON: {\"decision\":\"APPROVE|REJECT\",\"reject_confidence\":0..1,\"reason\":\"...\"}.\n"
+        "If content is uncertain, prefer REJECT with higher confidence.\n"
+        "If video_description contains !conf=X (0..1), use that exact value as reject_confidence.\n"
         f"challenge_title: {challenge_title}\n"
         f"challenge_description: {challenge_description}\n"
         f"video_description: {video_description or ''}\n"
         f"filename: {filename}\n"
     )
+    parts: list[dict[str, Any]] = [{"text": prompt}]
+    for frame in frames:
+        parts.append(
+            {
+                "inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(frame).decode("ascii"),
+                }
+            }
+        )
     body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "temperature": 0.1,
             "topP": 0.9,
@@ -992,6 +1050,7 @@ async def upload_challenge_video(
         challenge_description=challenge.description,
         video_description=description,
         filename=file_name,
+        video_path=target,
         threshold=threshold,
     )
     video = ModerationVideoORM(
