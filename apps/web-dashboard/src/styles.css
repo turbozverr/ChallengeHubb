@@ -48,6 +48,8 @@ button:disabled,
 
 .hero { background: radial-gradient(circle at 20% 20%, #2b0f17 0%, #1a1a1a 50%); }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
+.center { justify-content: center; }
+.text-center { text-align: center; }
 .filtersRow {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) repeat(auto-fit, minmax(180px, 220px));
@@ -87,6 +89,9 @@ textarea { min-height: 90px; }
 }
 .sidebarTop { display: grid; gap: 12px; }
 .sidebarBottom { margin-top: 16px; }
+.logoLink:hover {
+  background-color: transparent !important;
+}
 .logoutButton {
   width: 100%;
   background: #232323;
@@ -99,7 +104,7 @@ textarea { min-height: 90px; }
 }
 .brand { display: flex; align-items: center; gap: 10px; }
 .logo { width: 36px; height: 36px; object-fit: contain; }
-.logoFull { width: min(360px, 72vw); height: auto; }
+.logoFull { width: 100%; object-fit: contain; }
 .sidebar nav { margin-top: 8px; display: grid; gap: 8px; }
 .sidebar a { color: #f5f5f5; text-decoration: none; padding: 8px 10px; border-radius: 8px; }
 .sidebar a:hover { background: #2a2a2a; }
@@ -204,6 +209,10 @@ th { background: #151515; }
 .bars { display: grid; gap: 8px; }
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .tab { background: #222; border-color: #333; }
+.tab:hover {
+  background: linear-gradient(to bottom right, rgba(173, 70, 255, 0.22), rgba(246, 51, 154, 0.22));
+  border-color: #F6339A;
+}
 .tab.active { background: linear-gradient(to bottom right, #AD46FF, #F6339A); border-color: transparent; }
 .barRow { display: grid; grid-template-columns: 220px 1fr 80px; gap: 10px; align-items: center; }
 .barTrack { height: 12px; background: #2a2a2a; border-radius: 999px; overflow: hidden; }

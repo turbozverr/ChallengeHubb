@@ -25,7 +25,7 @@ export function AppHomePage() {
 
   return (
     <div className="card">
-      <h1>Глобальний дашборд адміністратора</h1>
+      <h1>Глобальний дешборд адміністратора</h1>
       {error ? <p className="error">{error}</p> : null}
       {overview ? (
         <div className="grid3">

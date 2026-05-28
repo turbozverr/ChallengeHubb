@@ -26,8 +26,9 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="sidebarTop">
           <div className="brand">
-            <img src="/logo-icon.png" alt="ChallengeHub logo" className="logo" />
-            <h2>ChallengeHub</h2>
+            <a href="/" className="logoLink">
+              <img src="/logo-full.png" alt="ChallengeHub logo" className="logoFull"/>
+            </a>
           </div>
           <nav>
             {links.map((item) => (

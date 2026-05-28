@@ -16,7 +16,7 @@ import { useAuth } from "../auth/AuthContext";
 type AdminTab = "dashboard" | "web-users" | "mobile-users" | "challenges" | "user-challenges" | "ad-videos" | "videos" | "settings";
 
 const tabLabels: Record<AdminTab, string> = {
-  dashboard: "Дашборд",
+  dashboard: "Дешборд",
   "mobile-users": "Користувачі",
   "web-users": "Веб-користувачі",
   challenges: "Спонсорські челенджі",
@@ -313,7 +313,7 @@ export function AdminPage() {
           </div>
           <div className="chartGrid">
             <section>
-              <h2>Щоденна, тижнева та місячна активність користувачів</h2>
+              <h2>Активність користувачів</h2>
               <LineChart
                 labels={dayLabels}
                 yLabel="Активні користувачі"
@@ -326,7 +326,7 @@ export function AdminPage() {
             </section>
 
             <section>
-              <h2>Реєстрації мобільних користувачів</h2>
+              <h2>Реєстрації користувачів</h2>
               <LineChart
                 labels={dashboard?.mobile_registrations.map((r) => r.date) ?? []}
                 yLabel="Реєстрації"
@@ -339,16 +339,16 @@ export function AdminPage() {
 
           <div className="chartGrid">
             <section>
-              <h2>Середній час рішення модератора (години)</h2>
+              <h2>Середній час рішення модератора</h2>
               <LineChart
                 labels={dashboard?.moderation_decision_time_hours.map((p) => p.date) ?? []}
                 yLabel="Години"
-                series={[{ name: "Середній час", color: "#F6339A", values: dashboard?.moderation_decision_time_hours.map((p) => p.value) ?? [] }]}
+                series={[{ name: "Середній час, год.", color: "#F6339A", values: dashboard?.moderation_decision_time_hours.map((p) => p.value) ?? [] }]}
               />
             </section>
 
             <section>
-              <h2>Зростання контенту (рекламні та звичайні відео)</h2>
+              <h2>Зростання контенту</h2>
               <LineChart
                 labels={dashboard?.content_growth.map((p) => p.date) ?? []}
                 yLabel="Кількість відео"
@@ -375,7 +375,7 @@ export function AdminPage() {
             </section>
 
             <section>
-              <h2>Якість AI-модерації (частка змінених рішень)</h2>
+              <h2>Якість AI-модерації</h2>
               <LineChart
                 labels={dashboard?.ai_quality_overturned_rate.map((p) => p.date) ?? []}
                 yLabel="%"

@@ -4,13 +4,12 @@ export function LandingPage() {
   return (
     <div className="landing hero">
       <div className="brand">
-        <img src="/logo-full.png" alt="ChallengeHub logo" className="logo logoFull" />
-        <h1>ChallengeHub</h1>
+        <img src="/logo-full.png" alt="ChallengeHub logo" className="logoFull" />
       </div>
-      <p>Панель керування для ролей Admin, Moderator та BusinessClient.</p>
-      <div className="row">
-        <a className="button" href="/downloads/challengehub-mobile.vpk" download>
-          Завантажити мобільну версію (.vpk)
+      <hr style={{ border: 'none', height: '1px', margin: '30px 0 40px', backgroundColor: '#3a3a3a' }} />
+      <div className="row center">
+        <a className="button" href="/downloads/challengehub-mobile.apk" download>
+          Завантажити мобільну версію (.apk)
         </a>
         <Link className="button secondary" to="/login">
           Увійти у веб-панель

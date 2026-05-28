@@ -28,15 +28,17 @@ export function LoginPage() {
   };
 
   return (
-    <div className="card">
-      <h1>Вхід у ChallengeHub</h1>
-      <p className="muted">admin/moderator/business@challengehub.dev | 12345</p>
-      <form className="column" onSubmit={handleSubmit}>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-        <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" type="password" />
-        {error ? <p className="error">{error}</p> : null}
-        <button type="submit" disabled={loading}>{loading ? "Вхід..." : "Увійти"}</button>
-      </form>
+    <div className="card" style={{ maxWidth: 400, margin: "40px auto", padding: 30 }}>
+        <h1 className="text-center">Вхід у ChallengeHub</h1>
+        <p className="muted text-center">admin/moderator/business@challengehub.dev 12345</p>
+        <form className="column" onSubmit={handleSubmit}>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Пароль" type="password" />
+          {error ? <p className="error">{error}</p> : null}
+          <button type="submit" disabled={loading} style={{ marginTop: 12 }}>
+            {loading ? "Вхід..." : "Увійти"}
+          </button>
+        </form>
     </div>
   );
 }

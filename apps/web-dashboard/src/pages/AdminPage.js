@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { resolveMediaUrl } from "../api/media";
 import { useAuth } from "../auth/AuthContext";
 const tabLabels = {
-    dashboard: "Дашборд",
+    dashboard: "Дешборд",
     "mobile-users": "Користувачі",
     "web-users": "Веб-користувачі",
     challenges: "Спонсорські челенджі",
