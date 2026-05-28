@@ -390,7 +390,7 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
         "generationConfig": {
             "temperature": 0.7,
             "topP": 0.9,
-            "maxOutputTokens": 520,
+            "maxOutputTokens": 900,
         },
     }
     request = Request(
@@ -405,8 +405,12 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
     try:
         with urlopen(request, timeout=15) as response:
             payload = json.loads(response.read().decode("utf-8"))
-        parts = payload["candidates"][0]["content"]["parts"]
+        candidate = payload["candidates"][0]
+        parts = candidate["content"]["parts"]
         text = "".join(part.get("text", "") for part in parts).strip()
+        finish_reason = str(candidate.get("finishReason") or "")
+        if finish_reason == "MAX_TOKENS" and text and text[-1] not in ".!?":
+            text = f"{text}..."
         return text or _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
     except Exception:
         return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
@@ -431,7 +435,6 @@ def _moderate_video_with_gemini(
     challenge_title: str,
     challenge_description: str,
     video_description: str | None,
-    filename: str,
     threshold: float,
 ) -> tuple[str, str, str | None, float | None]:
     if not settings.gemini_api_key:
@@ -443,11 +446,9 @@ def _moderate_video_with_gemini(
         "Return ONLY JSON: {\"decision\":\"APPROVE|REJECT\",\"reject_confidence\":0..1,\"reason\":\"...\"}.\n"
         "Reject if description indicates profanity (e.g. fuck, shit), hate speech, harassment, explicit violence, illegal activity promotion, or obvious advertising/spam.\n"
         "If uncertain, prefer REJECT with moderate confidence.\n"
-        "If video_description contains !conf=X (0..1), use that exact value as reject_confidence.\n"
         f"challenge_title: {challenge_title}\n"
         f"challenge_description: {challenge_description}\n"
         f"video_description: {video_description or ''}\n"
-        f"filename: {filename}\n"
     )
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -478,11 +479,12 @@ def _moderate_video_with_gemini(
         reject_confidence = max(0.0, min(1.0, reject_confidence))
         reason = str(data.get("reason") or "").strip() or None
         logger.info(
-            "AI moderation result: decision=%s reject_confidence=%.3f threshold=%.3f reason=%s",
+            "AI moderation result: decision=%s reject_confidence=%.3f threshold=%.3f reason=%s description=%r",
             decision,
             reject_confidence,
             threshold,
             reason or "-",
+            video_description or None
         )
         if decision == "REJECT" and reject_confidence >= threshold:
             return "REJECTED", "PENDING_MANUAL", reason, reject_confidence
@@ -995,7 +997,6 @@ async def upload_challenge_video(
         challenge_title=challenge.title,
         challenge_description=challenge.description,
         video_description=description,
-        filename=file_name,
         threshold=threshold,
     )
     video = ModerationVideoORM(
