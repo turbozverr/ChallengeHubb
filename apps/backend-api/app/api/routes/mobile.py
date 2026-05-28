@@ -1166,7 +1166,6 @@ async def upload_challenge_video(
             promo_row = (
                 db.query(PromoCodeORM)
                 .filter(PromoCodeORM.challenge_id == challenge_id)
-                .order_by(PromoCodeORM.created_at.asc())
                 .first()
             )
             if promo_row and promo_row.code:
