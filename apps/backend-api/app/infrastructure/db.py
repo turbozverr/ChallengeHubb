@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.core.config import settings
@@ -110,6 +110,10 @@ class UserChallengeORM(Base):
 
 class ChallengeParticipationORM(Base):
     __tablename__ = "challenge_participations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "challenge_id", "challenge_type", name="ux_participation_user_challenge"),
+        Index("ix_ch_participation_user_status_started", "user_id", "status", "started_at"),
+    )
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
     challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -121,6 +125,7 @@ class ChallengeParticipationORM(Base):
 
 class VideoCommentORM(Base):
     __tablename__ = "video_comments"
+    __table_args__ = (Index("ix_video_comments_video_created", "video_id", "created_at"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     video_id: Mapped[str] = mapped_column(ForeignKey("videos.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
@@ -151,6 +156,7 @@ class UserBadgeORM(Base):
 
 class NotificationORM(Base):
     __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_user_read_created", "user_id", "is_read", "created_at"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -187,6 +193,10 @@ class PromoCodeORM(Base):
 
 class ModerationVideoORM(Base):
     __tablename__ = "videos"
+    __table_args__ = (
+        Index("ix_videos_author_created", "author_user_id", "created_at"),
+        Index("ix_videos_status_created", "status", "created_at"),
+    )
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     challenge_id: Mapped[str] = mapped_column(String(64), nullable=False)
     challenge_type: Mapped[str] = mapped_column(String(32), default="SPONSORED")
@@ -218,7 +228,10 @@ class ReportTicketORM(Base):
 
 class VideoLikeORM(Base):
     __tablename__ = "video_likes"
-    __table_args__ = (UniqueConstraint("user_id", "video_id", name="ux_video_likes_user_video"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "video_id", name="ux_video_likes_user_video"),
+        Index("ix_video_likes_video_id", "video_id"),
+    )
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     video_id: Mapped[str] = mapped_column(ForeignKey("videos.id"), nullable=False)
@@ -261,71 +274,40 @@ def to_dict(obj: object) -> dict:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
+        # Keep only creation/index statements and avoid historical ALTER/DROP patch noise.
         migrations = [
             "RENAME TABLE moderation_videos TO videos",
-            "ALTER TABLE sponsored_challenges ADD COLUMN difficulty VARCHAR(16) DEFAULT 'normal'",
-            "ALTER TABLE sponsored_challenges ADD COLUMN duration_days INT DEFAULT 7",
-            "ALTER TABLE sponsored_challenges ADD COLUMN xp_reward INT DEFAULT 100",
-            "ALTER TABLE sponsored_challenges ADD COLUMN promo_mode VARCHAR(32) DEFAULT 'SINGLE'",
-            "ALTER TABLE sponsored_challenges ADD COLUMN promo_single_code VARCHAR(255) NULL",
-            "ALTER TABLE videos ADD COLUMN description TEXT NULL",
-            "ALTER TABLE videos ADD COLUMN ai_reason TEXT NULL",
-            "ALTER TABLE videos ADD COLUMN ai_confidence FLOAT NULL",
-            "ALTER TABLE videos ADD COLUMN challenge_type VARCHAR(32) DEFAULT 'SPONSORED'",
-            "ALTER TABLE videos ADD COLUMN views_count INT DEFAULT 0",
-            "ALTER TABLE videos ADD COLUMN shares_count INT DEFAULT 0",
-            "ALTER TABLE videos DROP COLUMN is_ad",
-            "ALTER TABLE videos DROP COLUMN likes_count",
-            "CREATE TABLE IF NOT EXISTS video_likes (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, video_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
-            "CREATE UNIQUE INDEX ux_video_likes_user_video ON video_likes (user_id, video_id)",
-            "ALTER TABLE video_likes DROP FOREIGN KEY video_likes_ibfk_1",
-            "ALTER TABLE video_likes DROP FOREIGN KEY fk_video_likes_video",
-            "ALTER TABLE video_likes ADD CONSTRAINT fk_video_likes_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
-            "ALTER TABLE report_tickets DROP FOREIGN KEY report_tickets_ibfk_1",
-            "ALTER TABLE report_tickets DROP FOREIGN KEY fk_report_tickets_video",
-            "ALTER TABLE report_tickets ADD CONSTRAINT fk_report_tickets_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
-            "ALTER TABLE video_comments DROP FOREIGN KEY video_comments_ibfk_1",
-            "ALTER TABLE video_comments DROP FOREIGN KEY fk_video_comments_video",
-            "ALTER TABLE video_comments ADD CONSTRAINT fk_video_comments_video FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE",
-            "ALTER TABLE video_comment_likes DROP FOREIGN KEY video_comment_likes_ibfk_2",
-            "ALTER TABLE video_comment_likes DROP FOREIGN KEY fk_video_comment_likes_comment",
-            "ALTER TABLE video_comment_likes ADD CONSTRAINT fk_video_comment_likes_comment FOREIGN KEY (comment_id) REFERENCES video_comments(id) ON DELETE CASCADE",
-            "ALTER TABLE videos DROP FOREIGN KEY moderation_videos_ibfk_1",
-            "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL)",
-            "ALTER TABLE promo_codes DROP COLUMN is_sent",
-            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, file_path TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_by_admin_id VARCHAR(64) NULL, views_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
-            "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
-            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL)",
-            "ALTER TABLE mobile_users ADD COLUMN profile_background VARCHAR(64) NULL",
-            "ALTER TABLE mobile_users ADD COLUMN auth_provider VARCHAR(32) DEFAULT 'password'",
-            "UPDATE mobile_users SET auth_provider = 'google' WHERE password = 'GOOGLE_OAUTH'",
-            "UPDATE mobile_users SET auth_provider = 'password' WHERE auth_provider IS NULL",
-            "ALTER TABLE mobile_users ADD COLUMN fcm_token TEXT NULL",
-            "ALTER TABLE mobile_users ADD COLUMN last_comeback_notified_at DATETIME NULL",
+            "CREATE TABLE IF NOT EXISTS web_users (id VARCHAR(64) PRIMARY KEY, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, role VARCHAR(32) NOT NULL, password VARCHAR(255) NOT NULL, company_name VARCHAR(255) NULL, is_active BOOLEAN DEFAULT TRUE, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, profile_background VARCHAR(64) NULL, bio TEXT NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, fcm_token TEXT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL, last_comeback_notified_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
-            "CREATE UNIQUE INDEX ux_user_integrations_user_provider ON user_integrations (user_id, provider)",
             "CREATE TABLE IF NOT EXISTS integration_states (state VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_follows (id VARCHAR(64) PRIMARY KEY, follower_id VARCHAR(64) NOT NULL, followed_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
-            "CREATE UNIQUE INDEX ux_user_follows_pair ON user_follows (follower_id, followed_id)",
+            "CREATE TABLE IF NOT EXISTS sponsored_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, reward_text VARCHAR(255) NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, promo_mode VARCHAR(32) DEFAULT 'SINGLE', promo_single_code VARCHAR(255) NULL, client_id VARCHAR(64) NOT NULL, client_company_name VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL, created_by_admin_id VARCHAR(64) NOT NULL, created_at DATETIME NULL, published_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL)",
             "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS challenge_participations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, challenge_id VARCHAR(64) NOT NULL, challenge_type VARCHAR(32) NOT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', started_at DATETIME NULL, completed_at DATETIME NULL)",
-            "CREATE UNIQUE INDEX ux_participation_user_challenge ON challenge_participations (user_id, challenge_id, challenge_type)",
-            "CREATE TABLE IF NOT EXISTS video_comments (id VARCHAR(64) PRIMARY KEY, video_id VARCHAR(64) NOT NULL, user_id VARCHAR(64) NOT NULL, text TEXT NOT NULL, created_at DATETIME NULL)",
-            "ALTER TABLE video_comments ADD COLUMN likes_count INT DEFAULT 0",
+            "CREATE TABLE IF NOT EXISTS videos (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, challenge_type VARCHAR(32) DEFAULT 'SPONSORED', author_user_id VARCHAR(64) NOT NULL, url TEXT NOT NULL, description TEXT NULL, ai_reason TEXT NULL, ai_confidence FLOAT NULL, ai_status VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL, reports_count INT DEFAULT 0, views_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL, decided_by VARCHAR(64) NULL, decided_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS report_tickets (id VARCHAR(64) PRIMARY KEY, video_id VARCHAR(64) NOT NULL, reason TEXT NOT NULL, status VARCHAR(32) NOT NULL, created_at DATETIME NULL, decided_by VARCHAR(64) NULL, decided_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS video_likes (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, video_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS video_comments (id VARCHAR(64) PRIMARY KEY, video_id VARCHAR(64) NOT NULL, user_id VARCHAR(64) NOT NULL, text TEXT NOT NULL, likes_count INT DEFAULT 0, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS video_comment_likes (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, comment_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
-            "CREATE UNIQUE INDEX ux_video_comment_likes_user_comment ON video_comment_likes (user_id, comment_id)",
             "CREATE TABLE IF NOT EXISTS user_badges (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, badge_code VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, is_pinned BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS notifications (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, body TEXT NOT NULL, is_read BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
-            "ALTER TABLE ad_videos ADD COLUMN file_path TEXT NULL",
-            "ALTER TABLE ad_videos CHANGE COLUMN title description TEXT NULL",
-            "ALTER TABLE ad_videos CHANGE COLUMN video_url url TEXT NULL",
-            "ALTER TABLE ad_videos DROP COLUMN challenge_id",
-            "ALTER TABLE ad_videos ADD COLUMN status VARCHAR(32) DEFAULT 'PUBLISHED'",
-            "ALTER TABLE ad_videos ADD COLUMN created_by_admin_id VARCHAR(64) NULL",
-            "ALTER TABLE ad_videos ADD COLUMN views_count INT DEFAULT 0",
-            "ALTER TABLE ad_videos ADD COLUMN likes_count INT DEFAULT 0",
-            "ALTER TABLE ad_videos ADD COLUMN shares_count INT DEFAULT 0",
+            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, file_path TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_by_admin_id VARCHAR(64) NULL, views_count INT DEFAULT 0, likes_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
+            "CREATE UNIQUE INDEX ux_video_likes_user_video ON video_likes (user_id, video_id)",
+            "CREATE UNIQUE INDEX ux_video_comment_likes_user_comment ON video_comment_likes (user_id, comment_id)",
+            "CREATE UNIQUE INDEX ux_user_integrations_user_provider ON user_integrations (user_id, provider)",
+            "CREATE UNIQUE INDEX ux_user_follows_pair ON user_follows (follower_id, followed_id)",
+            "CREATE UNIQUE INDEX ux_participation_user_challenge ON challenge_participations (user_id, challenge_id, challenge_type)",
+            "CREATE INDEX ix_videos_author_created ON videos (author_user_id, created_at)",
+            "CREATE INDEX ix_videos_status_created ON videos (status, created_at)",
+            "CREATE INDEX ix_ch_participation_user_status_started ON challenge_participations (user_id, status, started_at)",
+            "CREATE INDEX ix_video_comments_video_created ON video_comments (video_id, created_at)",
+            "CREATE INDEX ix_notifications_user_read_created ON notifications (user_id, is_read, created_at)",
+            "CREATE INDEX ix_video_likes_video_id ON video_likes (video_id)",
         ]
         for statement in migrations:
             try:

@@ -364,7 +364,7 @@ export function AdminPage() {
             <section>
               <h2>Топ челенджі за залученням аудиторії</h2>
               <LineChart
-                labels={dashboard?.top_challenges_engagement.map((c, i) => `${i + 1}`) ?? []}
+                labels={dashboard?.top_challenges_engagement.map((_, i) => `${i + 1}`) ?? []}
                 yLabel="Значення"
                 series={[
                   { name: "Перегляди", color: "#AD46FF", values: dashboard?.top_challenges_engagement.map((c) => c.views) ?? [] },
