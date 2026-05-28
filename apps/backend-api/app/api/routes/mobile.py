@@ -1153,7 +1153,7 @@ async def upload_challenge_video(
         )
     user = db.get(MobileUserORM, current_user.id)
     if user and video.status == "PUBLISHED":
-        reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 500)
+        reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 1000)
         if user.is_premium:
             reward *= 2
         user.xp += reward
