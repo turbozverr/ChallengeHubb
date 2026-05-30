@@ -581,8 +581,12 @@ def _youtube_token_request(payload: dict[str, str]) -> dict[str, object]:
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urlopen(request, timeout=15) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = _read_google_http_error(exc, "Google OAuth token request failed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
 
 
 def _as_naive_utc(value):
@@ -654,8 +658,12 @@ def _youtube_upload(access_token: str, video: ModerationVideoORM, db: Session) -
         },
         method="POST",
     )
-    with urlopen(request, timeout=60) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = _read_google_http_error(exc, "YouTube upload failed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
     youtube_id = payload.get("id")
     if not youtube_id:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload did not return video id")
@@ -689,11 +697,40 @@ def _tiktok_error_detail(payload: dict[str, object], fallback: str) -> str:
     return fallback
 
 
+def _google_error_detail(payload: dict[str, object], fallback: str) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        code = str(error.get("code") or "").strip()
+        status_text = str(error.get("status") or "").strip()
+        details = error.get("errors")
+        reason = ""
+        if isinstance(details, list) and details:
+            first = details[0]
+            if isinstance(first, dict):
+                reason = str(first.get("reason") or "").strip()
+        parts = [p for p in [message, f"reason={reason}" if reason else "", f"status={status_text}" if status_text else "", f"code={code}" if code else ""] if p]
+        if parts:
+            return f"{fallback}: {'; '.join(parts)}"
+    if isinstance(error, str) and error.strip():
+        return f"{fallback}: {error.strip()}"
+    return fallback
+
+
 def _read_tiktok_http_error(error: HTTPError, fallback: str) -> str:
     try:
         body = error.read().decode("utf-8")
         payload = json.loads(body)
         return _tiktok_error_detail(payload, f"{fallback}: HTTP {error.code}")
+    except Exception:
+        return f"{fallback}: HTTP {error.code}"
+
+
+def _read_google_http_error(error: HTTPError, fallback: str) -> str:
+    try:
+        body = error.read().decode("utf-8")
+        payload = json.loads(body)
+        return _google_error_detail(payload, f"{fallback}: HTTP {error.code}")
     except Exception:
         return f"{fallback}: HTTP {error.code}"
 
