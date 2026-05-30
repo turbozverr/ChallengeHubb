@@ -12,6 +12,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_mobile_user
@@ -809,9 +810,14 @@ def register_mobile_user(payload: MobileRegisterRequest, db: Session = Depends(g
         last_active_at=now_utc(),
     )
     token = f"mobile_{uuid4().hex}"
-    db.add(user)
-    db.add(MobileTokenORM(token=token, user_id=user.id))
-    db.commit()
+    try:
+        db.add(user)
+        db.flush()  # ensure mobile_users row exists before FK insert into mobile_auth_tokens
+        db.add(MobileTokenORM(token=token, user_id=user.id))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email or username already exists") from exc
     db.refresh(user)
     return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
 
