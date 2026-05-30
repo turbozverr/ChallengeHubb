@@ -128,8 +128,11 @@ def delete_ad_video(
 
 @router.get("", response_model=list[SponsoredChallengeResponse])
 def list_sponsored_challenges(current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)) -> list[SponsoredChallengeResponse]:
-    require_roles({WebRole.ADMIN, WebRole.MODERATOR}, current_user)
-    rows = db.execute(select(SponsoredChallengeORM)).scalars().all()
+    require_roles({WebRole.ADMIN, WebRole.MODERATOR, WebRole.BUSINESS_CLIENT}, current_user)
+    query = select(SponsoredChallengeORM)
+    if current_user.role == WebRole.BUSINESS_CLIENT:
+        query = query.where(SponsoredChallengeORM.client_id == current_user.id)
+    rows = db.execute(query).scalars().all()
     return [SponsoredChallengeResponse(**to_dict(item)) for item in rows]
 
 
