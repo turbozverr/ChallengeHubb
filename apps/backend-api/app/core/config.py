@@ -5,9 +5,9 @@ class Settings(BaseSettings):
     app_name: str = "ChallengeHub Backend API"
     app_env: str = "development"
     app_version: str = "0.1.0"
-    mysql_dsn: str = "mysql+pymysql://challengehub:challengehub@localhost:3306/challengehub"
+    mysql_dsn: str = "mysql+pymysql://root:eMYQfXOKXnNegUNOfwejqfhnMSDBQBCs@mysql.railway.internal:3306/railway"
     google_client_id: str = "336495115484-kvskacmcgvrbijkmngn4sjljmuf370tu.apps.googleusercontent.com"
-    google_client_secret: str = "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"
+    google_client_secret: str = "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"
     youtube_redirect_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/integrations/youtube/callback"
     tiktok_client_key: str = "sbawvxbhvdcq7823x1"
     tiktok_client_secret: str = "TnGznx75vi7gNe8hDzKQ1U5TvyyJ0gKh"
@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     stripe_price_id: str = "price_1TbOm5GfPrFAXeacQGQ9OwFE"
     stripe_success_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/premium/success"
     stripe_cancel_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/premium/cancel"
-    gemini_api_key: str = "AQ.Ab8RN6LAzpYc3TA1FceXBM6sRT5A8IXIn_Jwr4NTcRb2EVJs0g"
+    gemini_api_key: str = "AQ.Ab8RN6Jjg8B2f04uiylQNmjhrfPc7jXh03YY1iyN9xXNdS2iZg"
     gemini_model: str = "gemini-2.5-flash"
-    mobile_jobs_token: str = "change-me-mobile-jobs-token"
+    mobile_jobs_token: str = "chhub_mjob_8f3d1a7c9e4b2f6d5a0c1e9f7b3a6d2c4e8f1a9b7d6c5e3f0a2b4c6d8e1f9a7"
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="CH_")
 
