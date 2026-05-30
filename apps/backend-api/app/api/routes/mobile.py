@@ -1,7 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import json
 import logging
@@ -664,6 +664,17 @@ def _youtube_upload(access_token: str, video: ModerationVideoORM, db: Session) -
     except HTTPError as exc:
         detail = _read_google_http_error(exc, "YouTube upload failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+    except URLError as exc:
+        reason = getattr(exc, "reason", None)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"YouTube upload failed: network error ({reason or 'unknown'})",
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="YouTube upload failed: request timed out",
+        ) from exc
     youtube_id = payload.get("id")
     if not youtube_id:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload did not return video id")
@@ -1512,7 +1523,11 @@ def export_video_to_youtube(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="YouTube upload failed") from exc
+        logger.exception("YouTube upload unexpected failure for video_id=%s user_id=%s", video_id, current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"YouTube upload failed: {exc}",
+        ) from exc
     return VideoExportResponse(provider="youtube", exported=True, external_url=external_url, message="Відео експортовано в YouTube Shorts")
 
 
