@@ -1519,7 +1519,7 @@ def export_video_to_youtube(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="YouTube account is not connected")
     access_token = _refresh_youtube_access_token(db, integration)
     try:
-        external_url = _youtube_upload(access_token, video)
+        external_url = _youtube_upload(access_token, video, db)
     except HTTPException:
         raise
     except Exception as exc:

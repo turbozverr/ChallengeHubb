@@ -8,7 +8,10 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ allow, children }: RoleGuardProps) {
-  const { user } = useAuth();
+  const { user, initialized } = useAuth();
+  if (!initialized) {
+    return null;
+  }
 
   if (!user) {
     return <Navigate to="/login" replace />;
