@@ -80,13 +80,16 @@ def _utc_now() -> datetime:
 def _is_premium_active(user: MobileUserORM | None) -> bool:
     if not user or not user.premium_until:
         return False
-    return user.premium_until > now_utc()
+    premium_until = _as_naive_utc(user.premium_until)
+    now_naive = _as_naive_utc(now_utc())
+    return bool(premium_until and now_naive and premium_until > now_naive)
 
 
 def _mobile_user_response(user: MobileUserORM) -> MobileUserResponse:
     data = to_dict(user)
     data["is_premium"] = _is_premium_active(user)
-    data["premium_until"] = user.premium_until.isoformat() if user.premium_until else None
+    premium_until = _as_naive_utc(user.premium_until)
+    data["premium_until"] = premium_until.isoformat() if premium_until else None
     return MobileUserResponse(**data)
 
 
@@ -1880,7 +1883,7 @@ def run_inactivity_comeback_job(
     for user in users:
         if user.last_comeback_notified_at:
             next_allowed = user.last_comeback_notified_at + timedelta(days=cooldown_days)
-            if next_allowed > now:
+            if _as_naive_utc(next_allowed) > _as_naive_utc(now):
                 continue
         if not user.last_active_at:
             continue
@@ -2005,10 +2008,11 @@ def premium_success(
     if not user:
         return _premium_page("Користувача не знайдено", "Оплата пройшла, але профіль ChallengeHub не знайдено. Зверніться до адміністратора.")
 
-    now = now_utc()
-    base_from = user.premium_until if user.premium_until and user.premium_until > now else now
+    now = _as_naive_utc(now_utc())
+    premium_until = _as_naive_utc(user.premium_until)
+    base_from = premium_until if premium_until and now and premium_until > now else now
     was_active = _is_premium_active(user)
-    user.premium_until = base_from + timedelta(days=30)
+    user.premium_until = (base_from or _as_naive_utc(now_utc())) + timedelta(days=30)
     _refresh_user_badges(db, user)
     if not was_active:
         db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована на 30 днів."))
