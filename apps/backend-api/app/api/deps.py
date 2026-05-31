@@ -12,6 +12,12 @@ from app.schemas.mobile import MobileUserResponse
 bearer = HTTPBearer(auto_error=False)
 
 
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=None) if value.tzinfo else value
+
+
 def _to_me_response(user: WebUserORM) -> MeResponse:
     return MeResponse(id=user.id, full_name=user.full_name, email=user.email, role=WebRole(user.role))
 
@@ -37,7 +43,9 @@ def require_roles(allowed: set[WebRole], user: MeResponse) -> None:
 
 
 def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
-    premium_active = bool(user.premium_until and user.premium_until > datetime.now(timezone.utc))
+    premium_until = _as_naive_utc(user.premium_until)
+    now_naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    premium_active = bool(premium_until and premium_until > now_naive_utc)
     return MobileUserResponse(
         id=user.id,
         username=user.username,
@@ -48,7 +56,7 @@ def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
         profile_background=user.profile_background,
         xp=user.xp,
         is_premium=premium_active,
-        premium_until=user.premium_until.isoformat() if user.premium_until else None,
+        premium_until=premium_until.isoformat() if premium_until else None,
         status=user.status,
         created_at=user.created_at.isoformat(),
     )
