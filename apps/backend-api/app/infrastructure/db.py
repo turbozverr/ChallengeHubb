@@ -304,9 +304,6 @@ def init_db() -> None:
             "CREATE INDEX ix_video_comments_video_created ON video_comments (video_id, created_at)",
             "CREATE INDEX ix_notifications_user_read_created ON notifications (user_id, is_read, created_at)",
             "CREATE INDEX ix_video_likes_video_id ON video_likes (video_id)",
-            "ALTER TABLE mobile_users ADD COLUMN premium_until DATETIME NULL",
-            "UPDATE mobile_users SET premium_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY) WHERE is_premium = 1 AND premium_until IS NULL",
-            "ALTER TABLE mobile_users DROP COLUMN is_premium",
         ]
         for statement in migrations:
             try:
