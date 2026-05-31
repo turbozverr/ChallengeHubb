@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -26,6 +27,21 @@ from app.schemas.auth import MeResponse
 from app.schemas.mobile import MobileUserResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=None) if value.tzinfo else value
+
+
+def _mobile_user_response(user: MobileUserORM) -> MobileUserResponse:
+    data = to_dict(user)
+    premium_until = _as_naive_utc(user.premium_until)
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    data["is_premium"] = bool(premium_until and premium_until > now_naive)
+    data["premium_until"] = premium_until.isoformat() if premium_until else None
+    return MobileUserResponse(**data)
 
 
 class UpdateMobileUserRequest(BaseModel):
@@ -72,7 +88,7 @@ def list_mobile_users(
 ) -> list[MobileUserResponse]:
     require_roles({WebRole.ADMIN}, current_user)
     users = db.execute(select(MobileUserORM)).scalars().all()
-    return [MobileUserResponse(**to_dict(user)) for user in users]
+    return [_mobile_user_response(user) for user in users]
 
 
 @router.patch("/mobile-users/{user_id}", response_model=MobileUserResponse)
@@ -90,7 +106,7 @@ def update_mobile_user(
         user.full_name = payload.full_name
     db.commit()
     db.refresh(user)
-    return MobileUserResponse(**to_dict(user))
+    return _mobile_user_response(user)
 
 
 @router.delete("/mobile-users/{user_id}")
