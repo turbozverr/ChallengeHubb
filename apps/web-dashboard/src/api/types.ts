@@ -160,11 +160,8 @@ export interface AdVideoResponse {
   id: string;
   description: string | null;
   url: string | null;
-  file_path: string | null;
   status: string;
-  created_by_admin_id: string | null;
   views_count: number;
-  likes_count: number;
   shares_count: number;
   created_at: string;
 }

@@ -79,9 +79,7 @@ async def upload_ad_video(
     row = AdVideoORM(
         id=f"ad_{uuid4().hex[:10]}",
         description=description,
-        url=None,
-        file_path=str(target).replace("\\", "/"),
-        created_by_admin_id=current_user.id,
+        url=str(target).replace("\\", "/"),
         status="PUBLISHED",
     )
     db.add(row)

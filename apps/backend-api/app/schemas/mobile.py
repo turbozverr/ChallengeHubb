@@ -103,7 +103,7 @@ class MobileVideoResponse(BaseModel):
     id: str
     challenge_id: str
     challenge_type: str = "SPONSORED"
-    author_user_id: str
+    author_user_id: str | None = None
     url: str
     description: str | None = None
     ai_status: str

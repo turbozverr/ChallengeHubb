@@ -55,10 +55,7 @@ class AdVideoResponse(BaseModel):
     id: str
     description: str | None = None
     url: str | None = None
-    file_path: str | None = None
     status: str
-    created_by_admin_id: str | None = None
     views_count: int = 0
-    likes_count: int = 0
     shares_count: int = 0
     created_at: str

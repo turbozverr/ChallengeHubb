@@ -200,7 +200,7 @@ export function AdminPage() {
     () =>
       adVideos.filter((v) => {
         const q = adVideoSearch.toLowerCase();
-        const media = v.file_path ?? v.url ?? "";
+        const media = v.url ?? "";
         const text = `${v.id} ${v.description ?? ""} ${media}`.toLowerCase();
         const statusOk = adVideoStatusFilter === "ALL" || v.status === adVideoStatusFilter;
         return text.includes(q) && statusOk;
@@ -628,16 +628,15 @@ export function AdminPage() {
           </div>
           <div className="tableWrap">
             <table>
-              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Лайки</th><th>Репости</th><th>Дії</th></tr></thead>
+              <thead><tr><th>ID</th><th>Опис</th><th>Посилання</th><th>Статус</th><th>Перегляди</th><th>Репости</th><th>Дії</th></tr></thead>
               <tbody>
                 {adVideoRows.map((v) => (
                   <tr key={v.id}>
                     <td>{v.id}</td>
                     <td>{v.description ?? "-"}</td>
-                    <td><button className="actionBtn iconOnly view" title="Перегляд" aria-label="Перегляд" onClick={() => setPreviewUrl(resolveMediaUrl(v.file_path ?? v.url ?? ""))}>▶</button></td>
+                    <td><button className="actionBtn iconOnly view" title="Перегляд" aria-label="Перегляд" onClick={() => setPreviewUrl(resolveMediaUrl(v.url ?? ""))}>▶</button></td>
                     <td>{statusLabels[v.status] ?? v.status}</td>
                     <td>{v.views_count}</td>
-                    <td>{v.likes_count}</td>
                     <td>{v.shares_count}</td>
                     <td>
                       <div className="actionBar">

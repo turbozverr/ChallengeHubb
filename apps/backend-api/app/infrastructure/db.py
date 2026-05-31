@@ -241,11 +241,8 @@ class AdVideoORM(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="PUBLISHED")
-    created_by_admin_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     views_count: Mapped[int] = mapped_column(Integer, default=0)
-    likes_count: Mapped[int] = mapped_column(Integer, default=0)
     shares_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -291,7 +288,7 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS video_comment_likes (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, comment_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_badges (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, badge_code VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, is_pinned BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS notifications (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, title VARCHAR(255) NOT NULL, body TEXT NOT NULL, is_read BOOLEAN DEFAULT FALSE, created_at DATETIME NULL)",
-            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, file_path TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_by_admin_id VARCHAR(64) NULL, views_count INT DEFAULT 0, likes_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS ad_videos (id VARCHAR(64) PRIMARY KEY, description TEXT NULL, url TEXT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', views_count INT DEFAULT 0, shares_count INT DEFAULT 0, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS system_settings (id VARCHAR(64) PRIMARY KEY, ai_confidence_threshold FLOAT DEFAULT 0.85, report_limit INT DEFAULT 3)",
             "CREATE UNIQUE INDEX ux_video_likes_user_video ON video_likes (user_id, video_id)",
             "CREATE UNIQUE INDEX ux_video_comment_likes_user_comment ON video_comment_likes (user_id, comment_id)",
