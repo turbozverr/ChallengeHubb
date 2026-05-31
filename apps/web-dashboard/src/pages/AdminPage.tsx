@@ -362,19 +362,6 @@ export function AdminPage() {
 
           <div className="chartGrid">
             <section>
-              <h2>Топ челенджі за залученням аудиторії</h2>
-              <LineChart
-                labels={dashboard?.top_challenges_engagement.map((_, i) => `${i + 1}`) ?? []}
-                yLabel="Значення"
-                series={[
-                  { name: "Перегляди", color: "#AD46FF", values: dashboard?.top_challenges_engagement.map((c) => c.views) ?? [] },
-                  { name: "Сабміти", color: "#F6339A", values: dashboard?.top_challenges_engagement.map((c) => c.submissions) ?? [] },
-                  { name: "Репости", color: "#36CFC9", values: dashboard?.top_challenges_engagement.map((c) => c.shares) ?? [] }
-                ]}
-              />
-            </section>
-
-            <section>
               <h2>Якість AI-модерації</h2>
               <LineChart
                 labels={dashboard?.ai_quality_overturned_rate.map((p) => p.date) ?? []}

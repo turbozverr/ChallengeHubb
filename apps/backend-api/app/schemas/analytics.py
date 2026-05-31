@@ -20,15 +20,6 @@ class MobileRegistrationsPoint(BaseModel):
     users: int
 
 
-class TopChallengePoint(BaseModel):
-    challenge_id: str
-    title: str
-    submissions: int
-    views: int
-    shares: int
-    completion_rate: float
-
-
 class ContentGrowthPoint(BaseModel):
     date: str
     ad_videos: int
@@ -39,7 +30,6 @@ class AdminDashboardAnalyticsResponse(BaseModel):
     dau_wau_mau: list[DateValuePoint]
     mobile_registrations: list[MobileRegistrationsPoint]
     moderation_decision_time_hours: list[DateValuePoint]
-    top_challenges_engagement: list[TopChallengePoint]
     content_growth: list[ContentGrowthPoint]
     ai_quality_overturned_rate: list[DateValuePoint]
 

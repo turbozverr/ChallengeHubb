@@ -111,15 +111,6 @@ export interface MobileRegistrationsPoint {
   users: number;
 }
 
-export interface TopChallengePoint {
-  challenge_id: string;
-  title: string;
-  submissions: number;
-  views: number;
-  shares: number;
-  completion_rate: number;
-}
-
 export interface ContentGrowthPoint {
   date: string;
   ad_videos: number;
@@ -130,7 +121,6 @@ export interface AdminDashboardAnalyticsResponse {
   dau_wau_mau: DateValuePoint[];
   mobile_registrations: MobileRegistrationsPoint[];
   moderation_decision_time_hours: DateValuePoint[];
-  top_challenges_engagement: TopChallengePoint[];
   content_growth: ContentGrowthPoint[];
   ai_quality_overturned_rate: DateValuePoint[];
 }

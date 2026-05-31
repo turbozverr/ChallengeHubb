@@ -15,7 +15,6 @@ from app.schemas.analytics import (
     DateValuePoint,
     InteractionPoint,
     MobileRegistrationsPoint,
-    TopChallengePoint,
 )
 from app.schemas.auth import MeResponse
 
@@ -107,31 +106,6 @@ def get_admin_dashboard_analytics(
         for key, vals in decision_map.items()
     ]
 
-    by_challenge: dict[str, TopChallengePoint] = {}
-    user_challenge_titles = {c.id: c.title for c in user_challenges}
-    challenge_titles = {c.id: c.title for c in challenges}
-    for v in videos:
-        if v.challenge_id not in by_challenge:
-            by_challenge[v.challenge_id] = TopChallengePoint(
-                challenge_id=v.challenge_id,
-                title=challenge_titles.get(v.challenge_id, user_challenge_titles.get(v.challenge_id, v.challenge_id)),
-                submissions=0,
-                views=0,
-                shares=0,
-                completion_rate=0,
-            )
-        item = by_challenge[v.challenge_id]
-        item.submissions += 1
-        item.views += v.views_count
-        item.shares += v.shares_count
-        if v.status == "PUBLISHED":
-            item.completion_rate += 1
-    top_challenges = list(by_challenge.values())
-    for item in top_challenges:
-        item.completion_rate = round((item.completion_rate / item.submissions) * 100, 2) if item.submissions else 0
-    top_challenges.sort(key=lambda x: (x.views + x.shares * 3), reverse=True)
-    top_challenges = top_challenges[:7]
-
     growth_map: dict[str, ContentGrowthPoint] = {
         key: ContentGrowthPoint(date=key, ad_videos=0, regular_videos=0) for key in day_keys
     }
@@ -165,7 +139,6 @@ def get_admin_dashboard_analytics(
         dau_wau_mau=dau_wau_mau,
         mobile_registrations=mobile_registrations,
         moderation_decision_time_hours=decision_time,
-        top_challenges_engagement=top_challenges,
         content_growth=content_growth,
         ai_quality_overturned_rate=ai_quality,
     )
