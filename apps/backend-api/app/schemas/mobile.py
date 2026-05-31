@@ -27,6 +27,7 @@ class MobileUserResponse(BaseModel):
     profile_background: str | None = None
     xp: int
     is_premium: bool
+    premium_until: str | None = None
     status: str
     created_at: str
 

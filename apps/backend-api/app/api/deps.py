@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -35,6 +37,7 @@ def require_roles(allowed: set[WebRole], user: MeResponse) -> None:
 
 
 def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
+    premium_active = bool(user.premium_until and user.premium_until > datetime.now(timezone.utc))
     return MobileUserResponse(
         id=user.id,
         username=user.username,
@@ -44,7 +47,8 @@ def _to_mobile_response(user: MobileUserORM) -> MobileUserResponse:
         avatar_url=user.avatar_url,
         profile_background=user.profile_background,
         xp=user.xp,
-        is_premium=user.is_premium,
+        is_premium=premium_active,
+        premium_until=user.premium_until.isoformat() if user.premium_until else None,
         status=user.status,
         created_at=user.created_at.isoformat(),
     )

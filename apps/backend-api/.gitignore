@@ -1,0 +1,12 @@
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+.idea/
+.vscode/
+node_modules/
+dist/
+.env
+.env.*

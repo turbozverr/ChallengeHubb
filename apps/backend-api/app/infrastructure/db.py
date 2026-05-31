@@ -47,7 +47,7 @@ class MobileUserORM(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile_background: Mapped[str | None] = mapped_column(String(64), nullable=True)
     xp: Mapped[int] = mapped_column(Integer, default=0)
-    is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
+    premium_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     fcm_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
@@ -275,7 +275,7 @@ def init_db() -> None:
         migrations = [
             "CREATE TABLE IF NOT EXISTS web_users (id VARCHAR(64) PRIMARY KEY, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, role VARCHAR(32) NOT NULL, password VARCHAR(255) NOT NULL, company_name VARCHAR(255) NULL, is_active BOOLEAN DEFAULT TRUE, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
-            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, profile_background VARCHAR(64) NULL, xp INT DEFAULT 0, is_premium BOOLEAN DEFAULT FALSE, fcm_token TEXT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL, last_comeback_notified_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS mobile_users (id VARCHAR(64) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, full_name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, auth_provider VARCHAR(32) DEFAULT 'password', avatar_url TEXT NULL, profile_background VARCHAR(64) NULL, xp INT DEFAULT 0, premium_until DATETIME NULL, fcm_token TEXT NULL, status VARCHAR(32) DEFAULT 'ACTIVE', created_at DATETIME NULL, last_active_at DATETIME NULL, last_comeback_notified_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS integration_states (state VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, created_at DATETIME NULL)",
@@ -304,6 +304,9 @@ def init_db() -> None:
             "CREATE INDEX ix_video_comments_video_created ON video_comments (video_id, created_at)",
             "CREATE INDEX ix_notifications_user_read_created ON notifications (user_id, is_read, created_at)",
             "CREATE INDEX ix_video_likes_video_id ON video_likes (video_id)",
+            "ALTER TABLE mobile_users ADD COLUMN premium_until DATETIME NULL",
+            "UPDATE mobile_users SET premium_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY) WHERE is_premium = 1 AND premium_until IS NULL",
+            "ALTER TABLE mobile_users DROP COLUMN is_premium",
         ]
         for statement in migrations:
             try:

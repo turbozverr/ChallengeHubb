@@ -77,8 +77,17 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _is_premium_active(user: MobileUserORM | None) -> bool:
+    if not user or not user.premium_until:
+        return False
+    return user.premium_until > now_utc()
+
+
 def _mobile_user_response(user: MobileUserORM) -> MobileUserResponse:
-    return MobileUserResponse(**to_dict(user))
+    data = to_dict(user)
+    data["is_premium"] = _is_premium_active(user)
+    data["premium_until"] = user.premium_until.isoformat() if user.premium_until else None
+    return MobileUserResponse(**data)
 
 
 def _video_response(video: ModerationVideoORM, db: Session, current_user_id: str | None = None) -> MobileVideoResponse:
@@ -280,7 +289,7 @@ def _refresh_user_badges(db: Session, user: MobileUserORM) -> None:
         _grant_badge(db, user.id, "creative_mind")
     if user.xp >= 1000:
         _grant_badge(db, user.id, "xp_hunter")
-    if user.is_premium:
+    if _is_premium_active(user):
         _grant_badge(db, user.id, "premium_star")
 
 
@@ -395,7 +404,7 @@ def _assistant_context(db: Session, user: MobileUserORM) -> tuple[dict[str, obje
                 "profile_background_for_premium",
             ],
             "integrations": ["connect_youtube", "connect_tiktok", "export_video_after_publish"],
-            "premium": ["2x_xp_boost", "no_feed_ads", "ai_assistant_access"],
+            "premium": ["2x_xp_boost", "no_feed_ads", "ai_assistant_access", "premium_profile_backgrounds"],
             "assistant": ["challenge_recommendations", "feature_help", "motivation_and_plans"],
             "moderation": ["ai_precheck", "manual_queue_for_flagged_content"],
             "notifications": ["in_app_notifications", "inactivity_comeback_reminders"],
@@ -412,7 +421,7 @@ def _assistant_context(db: Session, user: MobileUserORM) -> tuple[dict[str, obje
             "full_name": user.full_name,
             "xp": user.xp,
             "level": (user.xp // 1000) + 1,
-            "is_premium": user.is_premium,
+            "is_premium": _is_premium_active(user),
             "status": user.status,
         },
         "badges": [
@@ -853,7 +862,6 @@ def register_mobile_user(payload: MobileRegisterRequest, db: Session = Depends(g
         password=payload.password,
         auth_provider="password",
         xp=0,
-        is_premium=False,
         status="ACTIVE",
         last_active_at=now_utc(),
     )
@@ -911,7 +919,6 @@ def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_d
             auth_provider="google",
             avatar_url=data.get("picture"),
             xp=0,
-            is_premium=False,
             status="ACTIVE",
             last_active_at=now_utc(),
         )
@@ -985,7 +992,7 @@ def get_feed(authorization: str | None = Header(default=None), db: Session = Dep
         .scalars()
         .all()
     )
-    if current_user and current_user.is_premium:
+    if current_user and _is_premium_active(current_user):
         return [_video_response(video, db, current_user_id) for video in videos]
 
     ads = (
@@ -1208,7 +1215,7 @@ async def upload_challenge_video(
     user = db.get(MobileUserORM, current_user.id)
     if user and video.status == "PUBLISHED":
         reward = min(challenge.xp_reward, 2000 if challenge_type == "SPONSORED" else 1000)
-        if user.is_premium:
+        if _is_premium_active(user):
             reward *= 2
         user.xp += reward
         _refresh_user_badges(db, user)
@@ -1687,7 +1694,7 @@ def update_profile(
         allowed_backgrounds = {"background_1", "background_2", "background_3", "background_4", "background_5", "background_6", "background_7"}
         if payload.profile_background and payload.profile_background not in allowed_backgrounds:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported profile background")
-        if payload.profile_background and not user.is_premium:
+        if payload.profile_background and not _is_premium_active(user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profile backgrounds are available only for Premium users")
         user.profile_background = payload.profile_background or None
     db.commit()
@@ -1899,7 +1906,7 @@ def assistant(
     db: Session = Depends(get_db),
 ) -> AssistantResponse:
     user = db.get(MobileUserORM, current_user.id)
-    if not user or not user.is_premium:
+    if not _is_premium_active(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AI assistant is available for Premium users only")
     answer, suggested_challenge_id = _call_gemini_assistant(payload.message, user, db)
     return AssistantResponse(answer=answer, suggested_challenge_id=suggested_challenge_id)
@@ -1998,11 +2005,16 @@ def premium_success(
     if not user:
         return _premium_page("Користувача не знайдено", "Оплата пройшла, але профіль ChallengeHub не знайдено. Зверніться до адміністратора.")
 
-    if not user.is_premium:
-        user.is_premium = True
-        _refresh_user_badges(db, user)
-        db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована."))
-        db.commit()
+    now = now_utc()
+    base_from = user.premium_until if user.premium_until and user.premium_until > now else now
+    was_active = _is_premium_active(user)
+    user.premium_until = base_from + timedelta(days=30)
+    _refresh_user_badges(db, user)
+    if not was_active:
+        db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium активовано", body="Підписка ChallengeHub Premium успішно активована на 30 днів."))
+    else:
+        db.add(NotificationORM(id=f"nt_{uuid4().hex[:10]}", user_id=user.id, title="Premium продовжено", body="Premium продовжено ще на 30 днів."))
+    db.commit()
     deep_link = "challengehub://premium/success"
     if session_id:
         deep_link = f"{deep_link}?session_id={session_id}"
