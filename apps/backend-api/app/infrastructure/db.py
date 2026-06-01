@@ -88,8 +88,8 @@ class UserFollowORM(Base):
     __tablename__ = "user_follows"
     __table_args__ = (UniqueConstraint("follower_id", "followed_id", name="ux_user_follows_pair"),)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    follower_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    followed_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    follower_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id", ondelete="CASCADE"), nullable=False)
+    followed_id: Mapped[str] = mapped_column(ForeignKey("mobile_users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
@@ -276,7 +276,7 @@ def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS mobile_auth_tokens (token VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS user_integrations (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, external_account_name VARCHAR(255) NULL, access_token TEXT NULL, refresh_token TEXT NULL, token_expires_at DATETIME NULL, created_at DATETIME NULL, updated_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS integration_states (state VARCHAR(128) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, provider VARCHAR(32) NOT NULL, created_at DATETIME NULL)",
-            "CREATE TABLE IF NOT EXISTS user_follows (id VARCHAR(64) PRIMARY KEY, follower_id VARCHAR(64) NOT NULL, followed_id VARCHAR(64) NOT NULL, created_at DATETIME NULL)",
+            "CREATE TABLE IF NOT EXISTS user_follows (id VARCHAR(64) PRIMARY KEY, follower_id VARCHAR(64) NOT NULL, followed_id VARCHAR(64) NOT NULL, created_at DATETIME NULL, CONSTRAINT fk_user_follows_follower FOREIGN KEY (follower_id) REFERENCES mobile_users(id) ON DELETE CASCADE, CONSTRAINT fk_user_follows_followed FOREIGN KEY (followed_id) REFERENCES mobile_users(id) ON DELETE CASCADE)",
             "CREATE TABLE IF NOT EXISTS sponsored_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, reward_text VARCHAR(255) NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, promo_mode VARCHAR(32) DEFAULT 'SINGLE', promo_single_code VARCHAR(255) NULL, client_id VARCHAR(64) NOT NULL, client_company_name VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL, created_by_admin_id VARCHAR(64) NOT NULL, created_at DATETIME NULL, published_at DATETIME NULL)",
             "CREATE TABLE IF NOT EXISTS promo_codes (id VARCHAR(64) PRIMARY KEY, challenge_id VARCHAR(64) NOT NULL, code VARCHAR(255) NOT NULL)",
             "CREATE TABLE IF NOT EXISTS user_challenges (id VARCHAR(64) PRIMARY KEY, title VARCHAR(255) NOT NULL, description TEXT NOT NULL, difficulty VARCHAR(16) DEFAULT 'normal', duration_days INT DEFAULT 7, xp_reward INT DEFAULT 100, created_by_user_id VARCHAR(64) NOT NULL, status VARCHAR(32) DEFAULT 'PUBLISHED', created_at DATETIME NULL)",
