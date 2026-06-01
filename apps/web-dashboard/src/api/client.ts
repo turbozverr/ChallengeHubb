@@ -43,7 +43,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password })
     }),
-  adminOverview: (token: string) => request<Record<string, number>>("/admin/overview", undefined, token),
+  adminOverview: (token: string) => request<Record<string, number>>("/analytics/admin-overview", undefined, token),
   listWebUsers: (token: string) => request<WebUserResponse[]>("/web-users", undefined, token),
   listMobileUsers: (token: string) => request<MobileUserResponse[]>("/admin/mobile-users", undefined, token),
   updateMobileUser: (token: string, userId: string, payload: { full_name?: string }) =>

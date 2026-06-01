@@ -13,13 +13,11 @@ from app.infrastructure.db import (
     ModerationVideoORM,
     NotificationORM,
     ReportTicketORM,
-    SponsoredChallengeORM,
     UserBadgeORM,
     UserChallengeORM,
     VideoCommentLikeORM,
     VideoCommentORM,
     VideoLikeORM,
-    WebUserORM,
     get_db,
     to_dict,
 )
@@ -61,25 +59,6 @@ class UpdateUserChallengeRequest(BaseModel):
 def admin_panel(current_user: MeResponse = Depends(get_current_web_user)) -> dict[str, str]:
     require_roles({WebRole.ADMIN}, current_user)
     return {"message": "Admin panel API доступний"}
-
-
-@router.get("/overview")
-def admin_overview(
-    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
-) -> dict[str, int]:
-    require_roles({WebRole.ADMIN}, current_user)
-    return {
-        "web_users_total": db.scalar(select(func.count()).select_from(WebUserORM)) or 0,
-        "sponsored_challenges_total": db.scalar(select(func.count()).select_from(SponsoredChallengeORM)) or 0,
-        "videos_pending_manual": db.scalar(
-            select(func.count()).select_from(ModerationVideoORM).where(ModerationVideoORM.status == "PENDING_MANUAL")
-        )
-        or 0,
-        "open_reports": db.scalar(
-            select(func.count()).select_from(ReportTicketORM).where(ReportTicketORM.status == "OPEN")
-        )
-        or 0,
-    }
 
 
 @router.get("/mobile-users", response_model=list[MobileUserResponse])

@@ -73,10 +73,6 @@ router = APIRouter(prefix="/mobile", tags=["mobile"])
 logger = logging.getLogger("challengehub.api")
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _is_premium_active(user: MobileUserORM | None) -> bool:
     if not user or not user.premium_until:
         return False
@@ -136,7 +132,7 @@ def _ad_video_response(ad: AdVideoORM) -> MobileVideoResponse:
         views_count=ad.views_count,
         likes_count=0,
         shares_count=ad.shares_count,
-        created_at=ad.created_at.isoformat() if ad.created_at else _utc_now().isoformat(),
+        created_at=ad.created_at.isoformat() if ad.created_at else datetime.now(timezone.utc).isoformat(),
         liked_by_me=False,
         comments_count=0,
         author_display_name="Реклама",
@@ -305,14 +301,8 @@ def _issue_mobile_token(user: MobileUserORM, db: Session) -> MobileTokenResponse
     return MobileTokenResponse(access_token=token, user=_mobile_user_response(user))
 
 
-def _fallback_assistant_answer(message: str, xp: int, challenge: SponsoredChallengeORM | UserChallengeORM | None) -> str:
-    challenge_part = f' Рекомендую почати з челенджу "{challenge.title}".' if challenge else ""
-    return (
-        f"Ти маєш {xp} XP. Сформулюй коротку ціль на сьогодні, запиши відео до 30 секунд "
-        f"і додай зрозумілий опис.{challenge_part} "
-        f'За твоїм запитом "{message}" найкраща дія зараз: обрати один челендж, виконати його без відкладання '
-        "і не гнатися за ідеальним результатом."
-    )
+def _fallback_assistant_answer() -> str:
+    return f"Привіт! Я твій AI-помічник у ChallengeHub. Нажаль, наразі я не можу відповісти на твій запит. Спробуй пізніше."
 
 
 def _challenge_participants_count(db: Session, challenge_id: str, challenge_type: str) -> int:
@@ -413,10 +403,8 @@ def _assistant_context(db: Session, user: MobileUserORM) -> tuple[dict[str, obje
             "notifications": ["in_app_notifications", "inactivity_comeback_reminders"],
         },
         "feature_rules": {
-            "ai_assistant_requires_premium": True,
             "video_upload_requires_selected_challenge": True,
             "max_pinned_badges": 3,
-            "premium_backgrounds_only_for_premium": True,
         },
         "user": {
             "id": user.id,
@@ -448,7 +436,7 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
     context, suggested_challenge = _assistant_context(db, user)
     suggested_id = suggested_challenge.id if suggested_challenge else None
     if not settings.gemini_api_key:
-        return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+        return _fallback_assistant_answer(), suggested_id
 
     system_prompt = """
 Ти AI-помічник мобільного застосунку ChallengeHub.
@@ -459,7 +447,8 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
 Орієнтуйся на app_capabilities та feature_rules в контексті; якщо функції немає в app_capabilities — прямо скажи, що вона не підтримується.
 Не вигадуй неіснуючі значки, челенджі, нагороди або статистику. Якщо даних бракує, прямо скажи це і запропонуй практичний наступний крок.
 Не давай небезпечних, образливих, незаконних або медичних/фінансових інструкцій.
-Формат відповіді: 2-5 речень або короткий список до 4 пунктів.
+Не використовуй форматування Markdown, HTML або інші спеціальні формати — просто текст.
+Формат відповіді: 2-5 речень або короткий список до 4 пунктів. 
 """.strip()
     body = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -501,9 +490,9 @@ def _call_gemini_assistant(message: str, user: MobileUserORM, db: Session) -> tu
         finish_reason = str(candidate.get("finishReason") or "")
         if finish_reason == "MAX_TOKENS" and text and text[-1] not in ".!?":
             text = f"{text}..."
-        return text or _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+        return text or _fallback_assistant_answer(), suggested_id
     except Exception:
-        return _fallback_assistant_answer(message, user.xp, suggested_challenge), suggested_id
+        return _fallback_assistant_answer(), suggested_id
 
 
 def _extract_json_object(text: str) -> dict[str, Any] | None:
@@ -552,7 +541,7 @@ def _moderate_video_with_gemini(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=12) as response:
+        with urlopen(request, timeout=15) as response:
             payload = json.loads(response.read().decode("utf-8"))
         parts = payload["candidates"][0]["content"]["parts"]
         text = "".join(part.get("text", "") for part in parts).strip()
@@ -601,8 +590,10 @@ def _youtube_token_request(payload: dict[str, str]) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
 
 
-def _as_naive_utc(value):
-    return value.replace(tzinfo=None) if getattr(value, "tzinfo", None) else value
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=None) if value.tzinfo else value
 
 
 def _refresh_youtube_access_token(db: Session, integration: UserIntegrationORM) -> str:
@@ -639,7 +630,7 @@ def _youtube_upload(access_token: str, video: ModerationVideoORM, db: Session) -
     if challenge and getattr(challenge, "title", None):
         challenge_title = str(challenge.title)
     tag_parts = re.findall(r"[A-Za-z0-9]+", challenge_title)
-    challenge_tag = f"#{''.join(part.capitalize() for part in tag_parts)[:40]}" if tag_parts else ""
+    challenge_tag = f"#{''.join(part.capitalize() for part in tag_parts)}" if tag_parts else ""
     tags = "#ChallengeHub" + (f" {challenge_tag}" if challenge_tag else "")
     metadata = {
         "snippet": {
@@ -723,12 +714,12 @@ def _tiktok_error_detail(payload: dict[str, object], fallback: str) -> str:
 def _google_error_detail(payload: dict[str, object], fallback: str) -> str:
     error = payload.get("error")
     if isinstance(error, dict):
-        message = str(error.get("message") or "").strip()
         code = str(error.get("code") or "").strip()
+        message = str(error.get("message") or "").strip()
         status_text = str(error.get("status") or "").strip()
         details = error.get("errors")
         reason = ""
-        if isinstance(details, list) and details:
+        if details and isinstance(details, list):
             first = details[0]
             if isinstance(first, dict):
                 reason = str(first.get("reason") or "").strip()
@@ -928,7 +919,6 @@ def google_mobile_login(payload: GoogleLoginRequest, db: Session = Depends(get_d
         db.add(user)
         db.flush()
     else:
-        user.auth_provider = "google" if user.password == "GOOGLE_OAUTH" else user.auth_provider
         if data.get("picture") and not user.avatar_url:
             user.avatar_url = data.get("picture")
     return _issue_mobile_token(user, db)
@@ -1869,7 +1859,7 @@ def run_inactivity_comeback_job(
     if not x_job_token or x_job_token != settings.mobile_jobs_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid job token")
 
-    now = _utc_now()
+    now = datetime.now(timezone.utc)
     inactive_before = now - timedelta(days=inactivity_days)
     max_inactive_before = now - timedelta(days=max_inactive_days)
     title = "Ми сумуємо за вами"

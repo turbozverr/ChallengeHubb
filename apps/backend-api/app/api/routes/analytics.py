@@ -6,7 +6,18 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_web_user, require_roles
 from app.domain.roles import WebRole
-from app.infrastructure.db import AdVideoORM, MobileUserORM, ModerationVideoORM, SponsoredChallengeORM, UserChallengeORM, VideoCommentORM, VideoLikeORM, get_db
+from app.infrastructure.db import (
+    AdVideoORM,
+    ChallengeParticipationORM,
+    MobileUserORM,
+    ModerationVideoORM,
+    SponsoredChallengeORM,
+    WebUserORM,
+    ReportTicketORM,
+    VideoCommentORM,
+    VideoLikeORM,
+    get_db
+)
 from app.schemas.analytics import (
     AdminDashboardAnalyticsResponse,
     BusinessDashboardAnalyticsResponse,
@@ -21,37 +32,24 @@ from app.schemas.auth import MeResponse
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
-@router.get("/campaigns", response_model=list[CampaignStatsResponse])
-def get_campaign_stats(
-    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
-) -> list[CampaignStatsResponse]:
-    require_roles({WebRole.ADMIN, WebRole.BUSINESS_CLIENT}, current_user)
-    challenges = db.execute(select(SponsoredChallengeORM)).scalars().all()
-    if current_user.role == WebRole.BUSINESS_CLIENT:
-        challenges = [c for c in challenges if c.client_id == current_user.id]
 
-    result: list[CampaignStatsResponse] = []
-    for challenge in challenges:
-        videos = db.execute(
-            select(ModerationVideoORM).where(
-                ModerationVideoORM.challenge_id == challenge.id,
-                ModerationVideoORM.challenge_type == "SPONSORED",
-            )
-        ).scalars().all()
-        views = sum(v.views_count for v in videos)
-        completed = len([v for v in videos if v.status == "PUBLISHED"])
-        conversion = (completed / views) * 100 if views > 0 else 0
-        result.append(
-            CampaignStatsResponse(
-                challenge_id=challenge.id,
-                title=challenge.title,
-                client_company_name=challenge.client_company_name,
-                views=views,
-                completed=completed,
-                conversion_rate=round(conversion, 2),
-            )
+@router.get("/admin-overview")
+def admin_overview(
+    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
+) -> dict[str, int]:
+    require_roles({WebRole.ADMIN}, current_user)
+    return {
+        "web_users_total": db.scalar(select(func.count()).select_from(WebUserORM)) or 0,
+        "sponsored_challenges_total": db.scalar(select(func.count()).select_from(SponsoredChallengeORM)) or 0,
+        "videos_pending_manual": db.scalar(
+            select(func.count()).select_from(ModerationVideoORM).where(ModerationVideoORM.status == "PENDING_MANUAL")
         )
-    return result
+        or 0,
+        "open_reports": db.scalar(
+            select(func.count()).select_from(ReportTicketORM).where(ReportTicketORM.status == "OPEN")
+        )
+        or 0,
+    }
 
 
 @router.get("/admin-dashboard", response_model=AdminDashboardAnalyticsResponse)
@@ -66,8 +64,6 @@ def get_admin_dashboard_analytics(
 
     videos = db.execute(select(ModerationVideoORM)).scalars().all()
     ad_videos = db.execute(select(AdVideoORM)).scalars().all()
-    challenges = db.execute(select(SponsoredChallengeORM)).scalars().all()
-    user_challenges = db.execute(select(UserChallengeORM)).scalars().all()
     mobile_users = db.execute(select(MobileUserORM)).scalars().all()
 
     dau_wau_mau: list[DateValuePoint] = []
@@ -122,15 +118,14 @@ def get_admin_dashboard_analytics(
 
     ai_quality = []
     for key in day_keys:
-        day_videos = [v for v in videos if v.decided_at and v.decided_at.date().isoformat() == key]
+        day_videos = [v for v in videos if v.created_at and v.created_at.date().isoformat() == key]
         if not day_videos:
             ai_quality.append(DateValuePoint(date=key, value=0.0))
             continue
         overturned = [
-            v
-            for v in day_videos
-            if (v.ai_status == "APPROVED" and v.status == "BLOCKED")
-            or (v.ai_status == "REJECTED" and v.status == "PUBLISHED")
+            v for v in day_videos
+                if (v.ai_status == "APPROVED" and v.status == "BLOCKED")
+                or (v.ai_status == "REJECTED" and v.status == "PUBLISHED")
         ]
         rate = (len(overturned) / len(day_videos)) * 100
         ai_quality.append(DateValuePoint(date=key, value=round(rate, 2)))
@@ -142,6 +137,39 @@ def get_admin_dashboard_analytics(
         content_growth=content_growth,
         ai_quality_overturned_rate=ai_quality,
     )
+
+
+@router.get("/campaigns", response_model=list[CampaignStatsResponse])
+def get_campaign_stats(
+    current_user: MeResponse = Depends(get_current_web_user), db: Session = Depends(get_db)
+) -> list[CampaignStatsResponse]:
+    require_roles({WebRole.ADMIN, WebRole.BUSINESS_CLIENT}, current_user)
+    challenges = db.execute(select(SponsoredChallengeORM)).scalars().all()
+    if current_user.role == WebRole.BUSINESS_CLIENT:
+        challenges = [c for c in challenges if c.client_id == current_user.id]
+
+    result: list[CampaignStatsResponse] = []
+    for challenge in challenges:
+        videos = db.execute(
+            select(ModerationVideoORM).where(
+                ModerationVideoORM.challenge_id == challenge.id,
+                ModerationVideoORM.challenge_type == "SPONSORED",
+            )
+        ).scalars().all()
+        views = sum(v.views_count for v in videos)
+        completed = len([v for v in videos if v.status == "PUBLISHED"])
+        conversion = (completed / views) * 100 if views > 0 else 0
+        result.append(
+            CampaignStatsResponse(
+                challenge_id=challenge.id,
+                title=challenge.title,
+                client_company_name=challenge.client_company_name,
+                views=views,
+                completed=completed,
+                conversion_rate=round(conversion, 2),
+            )
+        )
+    return result
 
 
 @router.get("/business-dashboard", response_model=BusinessDashboardAnalyticsResponse)
@@ -162,6 +190,13 @@ def get_business_dashboard_analytics(
     videos = db.execute(select(ModerationVideoORM)).scalars().all()
     videos = [v for v in videos if v.challenge_id in challenge_ids and v.challenge_type == "SPONSORED"]
     video_ids = {v.id for v in videos}
+    participations = db.execute(
+        select(ChallengeParticipationORM).where(
+            ChallengeParticipationORM.challenge_type == "SPONSORED",
+            ChallengeParticipationORM.challenge_id.in_(challenge_ids),
+            ChallengeParticipationORM.status == "COMPLETED",
+        )
+    ).scalars().all()
     comments = db.execute(select(VideoCommentORM)).scalars().all()
     likes_by_video = {
         vid: int(cnt)
@@ -185,7 +220,11 @@ def get_business_dashboard_analytics(
         submissions_map[k] += 1
         likes_map[k] += likes_by_video.get(v.id, 0)
         shares_map[k] += int(v.shares_count)
-        if v.status == "PUBLISHED":
+    for p in participations:
+        if not p.completed_at:
+            continue
+        k = p.completed_at.date().isoformat()
+        if k in completed_map:
             completed_map[k] += 1
     for comment in comments:
         if comment.video_id not in video_ids:
