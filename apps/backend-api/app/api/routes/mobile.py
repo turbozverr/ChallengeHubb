@@ -1400,9 +1400,14 @@ def share_video(
     db: Session = Depends(get_db),
 ) -> dict[str, bool]:
     video = db.get(ModerationVideoORM, video_id)
-    if not video:
+    if video:
+        video.shares_count += 1
+        db.commit()
+        return {"ok": True}
+    ad_video = db.get(AdVideoORM, video_id)
+    if not ad_video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
-    video.shares_count += 1
+    ad_video.shares_count += 1
     db.commit()
     return {"ok": True}
 
@@ -1410,9 +1415,14 @@ def share_video(
 @router.post("/videos/{video_id}/view")
 def view_video(video_id: str, db: Session = Depends(get_db)) -> dict[str, bool]:
     video = db.get(ModerationVideoORM, video_id)
-    if not video or video.status != "PUBLISHED":
+    if video and video.status == "PUBLISHED":
+        video.views_count += 1
+        db.commit()
+        return {"ok": True}
+    ad_video = db.get(AdVideoORM, video_id)
+    if not ad_video or ad_video.status != "PUBLISHED":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
-    video.views_count += 1
+    ad_video.views_count += 1
     db.commit()
     return {"ok": True}
 
