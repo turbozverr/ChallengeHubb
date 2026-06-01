@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     stripe_price_id: str = "price_1TbOm5GfPrFAXeacQGQ9OwFE"
     stripe_success_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/premium/success"
     stripe_cancel_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/premium/cancel"
-    gemini_api_key: str = "AQ.Ab8RN6INGgP482foILxBi-egEbx5XU6c4WjxAD5kGDlOyVyhzA"  # "AQ.Ab8RN6Jjg8B2f04uiylQNmjhrfPc7jXh03YY1iyN9xXNdS2iZg"
+    gemini_api_key: str = "AQ.Ab8RN6Ioqnh-pZ4deY5lVo1dd1rcYP2TpTJZ3_TcLQexdUQ8Fw"
     gemini_model: str = "gemini-2.5-flash"
     mobile_jobs_token: str = "chhub_mjob_8f3d1a7c9e4b2f6d5a0c1e9f7b3a6d2c4e8f1a9b7d6c5e3f0a2b4c6d8e1f9a7"
 
