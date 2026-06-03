@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     app_name: str = "ChallengeHub Backend API"
     app_env: str = "development"
     app_version: str = "0.1.0"
-    mysql_dsn: str = "mysql+pymysql://root:eMYQfXOKXnNegUNOfwejqfhnMSDBQBCs@mysql.railway.internal:3306/railway"
+    mysql_dsn: str = "mysql+pymysql://root:AtIydslKljcvzpScMxpINoFwRGFoLCQh@mysql.railway.internal:3306/railway"
     google_client_id: str = "336495115484-kvskacmcgvrbijkmngn4sjljmuf370tu.apps.googleusercontent.com"
     google_client_secret: str = "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"
     youtube_redirect_url: str = "https://challengehubb-production.up.railway.app/api/v1/mobile/integrations/youtube/callback"

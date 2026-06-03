@@ -53,4 +53,7 @@ documentation/
 tmp_docs_extract/
 tmp_docx_text/
 tmp_task3_docx/
+tmp_*.txt
+tmp_*/
+*_php/
 apps/.gitignore
