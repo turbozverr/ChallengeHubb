@@ -49,7 +49,7 @@ apps/mobile-android/app/release/
 apps/mobile-android/app/debug/
 apps/mobile-android/app/.cxx/
 apps/mobile-android/
-documentation/
+documentation_*/
 tmp_docs_extract/
 tmp_docx_text/
 tmp_task3_docx/
@@ -57,3 +57,5 @@ tmp_*.txt
 tmp_*/
 *_php/
 apps/.gitignore
+challengehub_laravel/
+challengehub
